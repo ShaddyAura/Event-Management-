@@ -11,13 +11,17 @@ public sealed record RegisterUserRequestDto
 
     [Required]
     [RegularExpression(CustomRegex.FullNameRegexPattern)]
-    public string Name { get; init; }
+    public string Name { get; init; } = string.Empty;
 
-    [Required] [EmailAddress] public string Email { get; init; }
+    [Required]
+    [EmailAddress]
+    public string Email { get; init; } = string.Empty;
 
-    public string Password { get; init; }
+    public bool IsAdmin { get; init; } = false;
 
-    [Compare(nameof(Password))] public string ConfirmPassword { get; init; }
+    public string Password { get; init; } = string.Empty;
+
+    [Compare(nameof(Password))] public string ConfirmPassword { get; init; } = string.Empty;
 
     public static implicit operator IdentityUser<Guid>(RegisterUserRequestDto dto) =>
         new() { Id = dto._id, UserName = dto._id.ToString(), Email = dto.Email };

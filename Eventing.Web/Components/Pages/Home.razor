@@ -1,76 +1,197 @@
 ﻿@page "/home"
+@using Eventing.Web.Components.Layout
+@using Eventing.Web.Services
+@rendermode InteractiveServer
 @layout MainLayout
-
-<h1>Welcome to Evento</h1>
-<p>This is your homepage content.</p>
-
-
-
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
 
 <!-- Hero Section -->
-<section class="hero">
-    <div class="hero-content">
-        <h1>Prepare Yourself for the <span>Conference</span></h1>
-        <p>12-14 February 2025 · Los Angeles, CA</p>
-        <button class="btn-primary">Get Tickets</button>
+<section class="mx-hero">
+    <div class="mx-hero-content">
+        <div class="mx-hero-text">
+            <span class="mx-date-badge">12-14 February 2025 · Los Angeles, CA</span>
+            <h1>Prepare Yourself for the<br /><span class="mx-accent">Conference</span></h1>
+            <p class="mx-hero-sub">
+                Join innovators, creators, and leaders for three days of<br />
+                networking, learning, and inspiration.
+            </p>
+            <div class="mx-hero-actions">
+                @if (_isAuth)
+                {
+                    <a href="@(_isAdmin ? "/dashboard/admin" : "/dashboard")" class="mx-btn-primary">
+                        🏠 Go to Dashboard
+                    </a>
+                    <a href="/events" class="mx-btn-outline">📅 Browse Events</a>
+                }
+                else
+                {
+                    <a href="/login" class="mx-btn-primary">🎟 Get Tickets</a>
+                    <button class="mx-btn-outline">▶ Watch Trailer</button>
+                }
+            </div>
+
+            @if (_isAuth)
+            {
+                <div class="mx-hero-welcome">
+                    <span>👋 Welcome back, <strong>@_fullName</strong>!</span>
+                </div>
+            }
+        </div>
+        <div class="mx-hero-image">
+            <div class="mx-attendees-badge">
+                <span class="mx-badge-icon">👥</span>
+                <div>
+                    <strong>5000+</strong>
+                    <small>Attendees Expected</small>
+                </div>
+            </div>
+        </div>
     </div>
 </section>
 
 <!-- About the Event -->
-<section class="about">
-    <h2>About the Event</h2>
-    <p>
-        Evento brings together innovators, creators, and leaders for three days
-        of networking, learning, and inspiration.
+<section class="mx-about">
+    <h2>About <span class="mx-underline">the Event</span></h2>
+    <p class="mx-about-sub">
+        MeetupX brings together innovators, creators, and leaders for three days of networking,
+        learning, and inspiration.
     </p>
-
-    <div class="about-cards">
-        <div class="card">
-            <h3>9 Speakers</h3>
-            <p>Hear from leading industry experts.</p>
+    <div class="mx-stats-grid">
+        <div class="mx-stat-card">
+            <div class="mx-stat-icon" style="background:#e91e63;">🎤</div>
+            <div>
+                <strong>9 Speakers</strong>
+                <p>Hear from leading industry experts.</p>
+            </div>
         </div>
-        <div class="card">
-            <h3>8 Hrs Marathon</h3>
-            <p>Non-stop learning and collaboration.</p>
+        <div class="mx-stat-card">
+            <div class="mx-stat-icon" style="background:#7c3aed;">👥</div>
+            <div>
+                <strong>8 Hrs Marathon</strong>
+                <p>Non-stop learning and collaboration.</p>
+            </div>
         </div>
-        <div class="card">
-            <h3>Live Broadcast</h3>
-            <p>Join remotely from anywhere in the world.</p>
+        <div class="mx-stat-card">
+            <div class="mx-stat-icon" style="background:#2563eb;">📡</div>
+            <div>
+                <strong>Live Broadcast</strong>
+                <p>Join remotely from anywhere in the world.</p>
+            </div>
         </div>
-        <div class="card">
-            <h3>Early Bird</h3>
-            <p>Special discount for early registrations.</p>
+        <div class="mx-stat-card">
+            <div class="mx-stat-icon" style="background:#059669;">🎫</div>
+            <div>
+                <strong>Early Bird</strong>
+                <p>Special discount for early registrations.</p>
+            </div>
         </div>
     </div>
 </section>
 
-<!-- Next Events Calendar -->
-<section class="events">
-    <h2>Next Events Calendar</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Date</th>
-                <th>Event</th>
-                <th>Location</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td>14 Feb</td>
-                <td>Conference in Amsterdam</td>
-                <td>Amsterdam</td>
-            </tr>
-            <tr>
-                <td>18 Feb</td>
-                <td>Conference in Los Angeles</td>
-                <td>Los Angeles</td>
-            </tr>
-            <tr>
-                <td>22 Feb</td>
-                <td>Conference in Berlin</td>
-                <td>Berlin</td>
-            </tr>
-        </tbody>
-    </table>
+<!-- Next Events Calendar — loaded from API -->
+<section class="mx-calendar">
+    <h2>Next Events <span class="mx-underline">Calendar</span></h2>
+
+    @if (_loadingEvents)
+    {
+        <div style="text-align:center;padding:2rem;color:#606070;">Loading events…</div>
+    }
+    else if (_upcomingEvents.Count == 0)
+    {
+        <p style="text-align:center;color:#606070;padding:2rem;">No upcoming events at the moment.</p>
+    }
+    else
+    {
+        <table class="mx-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Event</th>
+                    <th>Time</th>
+                    <th>Location</th>
+                    <th>Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var ev in _upcomingEvents)
+                {
+                    <tr>
+                        <td>@ev.StartTime.ToString("MMM dd, yyyy")</td>
+                        <td style="color:#fff;font-weight:500;">@ev.Title</td>
+                        <td>@ev.StartTime.ToString("hh:mm tt")</td>
+                        <td>@(ev.Location.Length > 30 ? ev.Location[..30] + "…" : ev.Location)</td>
+                        <td>
+                            <span style="font-size:0.78rem;">
+                                @(ev.LocationType == "Virtual" ? "🌐 Virtual" : "📍 In-Person")
+                            </span>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <div style="text-align:center;margin-top:1.2rem;">
+            <a href="/events" class="mx-btn-outline" style="display:inline-block;padding:0.6rem 1.4rem;">
+                View All Events →
+            </a>
+        </div>
+    }
 </section>
+
+@code {
+    private bool _isAuth;
+    private bool _isAdmin;
+    private string _fullName = "";
+    private bool _loadingEvents = true;
+    private List<EventItem> _upcomingEvents = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUpcomingEventsAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _isAuth   = await TokenService.IsAuthenticatedAsync();
+        _isAdmin  = await TokenService.IsAdminAsync();
+        _fullName = await TokenService.GetNameAsync() ?? "";
+
+        StateHasChanged();
+    }
+
+    private async Task LoadUpcomingEventsAsync()
+    {
+        _loadingEvents = true;
+        try
+        {
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            var all = await client.GetFromJsonAsync<List<EventItem>>("api/events") ?? [];
+
+            // Filter to Status == "Upcoming" events only, ordered by start time
+            _upcomingEvents = all
+                .Where(e => string.Equals(e.Status, "Upcoming", StringComparison.OrdinalIgnoreCase)
+                         && e.StartTime > DateTime.UtcNow)
+                .OrderBy(e => e.StartTime)
+                .Take(10)
+                .ToList();
+        }
+        catch
+        {
+            _upcomingEvents = [];
+        }
+        finally
+        {
+            _loadingEvents = false;
+        }
+    }
+
+    private sealed record EventItem(
+        Guid Id, string Title, string? Description,
+        DateTime StartTime, DateTime EndTime,
+        string LocationType, string Location,
+        string? Status,
+        Guid CreatedBy, DateTime CreatedAt, DateTime? UpdatedAt);
+}

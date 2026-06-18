@@ -11,13 +11,13 @@ public static class RolesSeeder
 
     public static async Task SeedAsync(DbContext dbContext, CancellationToken cancellationToken)
     {
-        var roleManager = dbContext.GetService<RoleManager<IdentityRole>>();
+        var roleManager = dbContext.GetService<RoleManager<IdentityRole<Guid>>>();
 
         foreach (var role in Roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
             {
-                await roleManager.CreateAsync(new IdentityRole(role));
+                await roleManager.CreateAsync(new IdentityRole<Guid>(role));
             }
         }
     }

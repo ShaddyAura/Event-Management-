@@ -1,0 +1,269 @@
+@page "/dashboard/admin"
+@using Eventing.Web.Components.Layout
+@rendermode InteractiveServer
+@layout AdminDashboardLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+@if (!_ready)
+{
+    <div class="db-loading"><span class="db-spinner"></span></div>
+}
+else
+{
+    <div class="dbd-page">
+
+        <!-- Welcome Header -->
+        <div class="dbd-welcome-header">
+            <div>
+                <h1>Welcome back, <span class="mx-accent">@_fullName</span> 👋</h1>
+                <p>Here's your admin platform overview.</p>
+            </div>
+            <button class="mx-btn-primary" @onclick='() => Nav.NavigateTo("/dashboard/admin/events")'>
+                ➕ Create Event
+            </button>
+        </div>
+
+        <!-- Stat Cards -->
+        <div class="db-stats-row">
+            <div class="db-stat-card db-stat-pink">
+                <div class="db-stat-icon">🗓</div>
+                <div>
+                    <div class="db-stat-value">@_events.Count</div>
+                    <div class="db-stat-label">Total Events</div>
+                </div>
+                <div class="db-stat-trend db-trend-up">Live</div>
+            </div>
+            <div class="db-stat-card db-stat-purple">
+                <div class="db-stat-icon">📅</div>
+                <div>
+                    <div class="db-stat-value">@_events.Count(e => e.Status == "Upcoming")</div>
+                    <div class="db-stat-label">Upcoming</div>
+                </div>
+            </div>
+            <div class="db-stat-card db-stat-blue">
+                <div class="db-stat-icon">✅</div>
+                <div>
+                    <div class="db-stat-value">@_events.Count(e => e.Status == "Ended")</div>
+                    <div class="db-stat-label">Ended</div>
+                </div>
+            </div>
+            <div class="db-stat-card db-stat-green">
+                <div class="db-stat-icon">🌐</div>
+                <div>
+                    <div class="db-stat-value">@_events.Count(e => e.LocationType == "Virtual")</div>
+                    <div class="db-stat-label">Virtual</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Events Table -->
+        <div class="db-card dbd-events-card">
+            <div class="db-card-header">
+                <h3>All Events</h3>
+                <button class="mx-btn-primary dbd-sm-btn"
+                        @onclick='() => Nav.NavigateTo("/dashboard/admin/events")'>
+                    Manage Events →
+                </button>
+            </div>
+
+            @if (_loading)
+            {
+                <div style="padding:2rem;text-align:center;color:#606070;">Loading events…</div>
+            }
+            else if (_events.Count == 0)
+            {
+                <div class="dbd-empty">
+                    <span>📭</span>
+                    <p>No events yet. <button class="auth-link" style="background:none;border:none;cursor:pointer;color:#e91e63;" @onclick='() => Nav.NavigateTo("/dashboard/admin/events")'>Create your first one!</button></p>
+                </div>
+            }
+            else
+            {
+                <table class="db-table">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Type</th>
+                            <th>Start Date</th>
+                            <th>End Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ev in _events.Take(8))
+                        {
+                            <tr>
+                                <td class="dbd-event-title">@ev.Title</td>
+                                <td>
+                                    <span class="db-pill @(ev.LocationType == "Virtual" ? "db-pill-blue" : "db-pill-green")">
+                                        @(ev.LocationType == "Virtual" ? "🌐" : "📍") @ev.LocationType
+                                    </span>
+                                </td>
+                                <td>@ev.StartTime.ToString("MMM dd, yyyy")</td>
+                                <td>@ev.EndTime.ToString("MMM dd, yyyy")</td>
+                                <td>
+                                    @if (ev.Status == "Cancelled")
+                                    { <span class="db-pill db-pill-danger">Cancelled</span> }
+                                    else if (ev.Status == "Ended" || ev.EndTime < DateTime.UtcNow)
+                                    { <span class="db-pill db-pill-gray">Ended</span> }
+                                    else if (ev.Status == "Live" || (ev.StartTime <= DateTime.UtcNow && ev.EndTime >= DateTime.UtcNow))
+                                    { <span class="db-pill db-pill-green">Live</span> }
+                                    else
+                                    { <span class="db-pill db-pill-purple">Upcoming</span> }
+                                </td>
+                                <td>
+                                    <div class="dbd-action-btns">
+                                        <button class="dbd-icon-btn dbd-edit" title="Edit"
+                                                @onclick="() => EditEvent(ev)">✏️</button>
+                                        <button class="dbd-icon-btn dbd-view" title="Attendees"
+                                                @onclick="() => ViewAttendees(ev.Id)">👥</button>
+                                        <button class="dbd-icon-btn dbd-delete" title="Delete"
+                                                @onclick="() => ConfirmDelete(ev)">🗑</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <!-- Quick Actions + System Status -->
+        <div class="db-grid" style="margin-top:1.5rem;">
+            <div class="db-card">
+                <div class="db-card-header"><h3>Quick Actions</h3></div>
+                <div class="db-actions-list">
+                    <a href="/dashboard/admin/events" class="db-action-item">
+                        <span class="db-action-icon" style="background:#e91e63;">➕</span>
+                        <span>Create New Event</span>
+                    </a>
+                    <a href="/dashboard/admin/attendees" class="db-action-item">
+                        <span class="db-action-icon" style="background:#7c3aed;">✅</span>
+                        <span>Manage Attendees</span>
+                    </a>
+                    <a href="/events" class="db-action-item">
+                        <span class="db-action-icon" style="background:#2563eb;">🔍</span>
+                        <span>View Public Events</span>
+                    </a>
+                    <a href="/home" class="db-action-item">
+                        <span class="db-action-icon" style="background:#059669;">🌐</span>
+                        <span>Go to Home Page</span>
+                    </a>
+                </div>
+            </div>
+
+            <div class="db-card">
+                <div class="db-card-header"><h3>System Status</h3></div>
+                <div class="db-overview-grid" style="grid-template-columns:1fr 1fr;">
+                    <div class="db-overview-item">
+                        <span class="db-overview-label">API</span>
+                        <span class="db-pill db-pill-green">Online</span>
+                    </div>
+                    <div class="db-overview-item">
+                        <span class="db-overview-label">Database</span>
+                        <span class="db-pill db-pill-green">Connected</span>
+                    </div>
+                    <div class="db-overview-item">
+                        <span class="db-overview-label">Cache</span>
+                        <span class="db-pill db-pill-green">Redis</span>
+                    </div>
+                    <div class="db-overview-item">
+                        <span class="db-overview-label">Email</span>
+                        <span class="db-pill db-pill-blue">MailPit</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    @if (_deleteTarget is not null)
+    {
+        <div class="dbd-modal-overlay" @onclick="CancelDelete">
+            <div class="dbd-modal" @onclick:stopPropagation="true">
+                <h3>Delete Event</h3>
+                <p>Are you sure you want to delete <strong>@_deleteTarget.Title</strong>? This cannot be undone.</p>
+                <div class="dbd-modal-actions">
+                    <button class="dbd-modal-cancel" @onclick="CancelDelete">Cancel</button>
+                    <button class="dbd-modal-confirm" @onclick="DeleteEventAsync">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _ready, _loading;
+    private string _fullName = "";
+    private List<EventItem> _events = [];
+    private EventItem? _deleteTarget;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!await TokenService.IsAdminAsync())
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        _fullName = await TokenService.GetNameAsync() ?? "Admin";
+        await LoadEventsAsync();
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _events = await client.GetFromJsonAsync<List<EventItem>>("api/events") ?? [];
+        }
+        catch { _events = []; }
+        finally { _loading = false; }
+    }
+
+    private void EditEvent(EventItem ev)
+        => Nav.NavigateTo($"/dashboard/admin/events?edit={ev.Id}");
+
+    private void ViewAttendees(Guid eventId)
+        => Nav.NavigateTo($"/dashboard/admin/attendees?eventId={eventId}");
+
+    private void ConfirmDelete(EventItem ev) => _deleteTarget = ev;
+    private void CancelDelete() => _deleteTarget = null;
+
+    private async Task DeleteEventAsync()
+    {
+        if (_deleteTarget is null) return;
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            var resp = await client.DeleteAsync($"api/events/{_deleteTarget.Id}");
+            if (resp.IsSuccessStatusCode)
+                _events.Remove(_deleteTarget);
+        }
+        catch { }
+        _deleteTarget = null;
+        StateHasChanged();
+    }
+
+    private sealed record EventItem(
+        Guid Id, string Title, string? Description,
+        DateTime StartTime, DateTime EndTime,
+        string LocationType, string Location,
+        Guid CreatedBy, DateTime CreatedAt, DateTime? UpdatedAt,
+        string? Status = null);
+}

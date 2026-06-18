@@ -1,4 +1,4 @@
-﻿using Eventing.ApiService.Data;
+using Eventing.ApiService.Data;
 using Eventing.ApiService.Setup;
 using Eventing.ApiService.Setup.Auth;
 using Eventing.ApiService.Setup.DbContext;
@@ -30,40 +30,33 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 builder.Services.AddXJsonOptions();
 builder.AddRedisDistributedCache("cache");
 
-// ✅ Register DbContext with DefaultConnection
+// Register DbContext
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddDbContext<EventingDbContext>(options =>
-    options.UseNpgsql(connectionString, npgsqlOptions =>
-    {
-        if (builder.Environment.IsDevelopment())
-        {
-            options.EnableDetailedErrors()
-                   .EnableSensitiveDataLogging();
-        }
-    })
-);
+{
+    options.UseNpgsql(connectionString);
 
-// ✅ Keep extension for seeding logic only
-builder.AddXDbContextExtension();
+    if (builder.Environment.IsDevelopment())
+    {
+        options.EnableDetailedErrors()
+               .EnableSensitiveDataLogging();
+    }
+});
 
 builder.Services.AddXIdentityCore();
 builder.Services.AddXJwt();
 builder.Services.AddXAuthentication();
 builder.Services.AddXAuthorization();
 
-if (builder.Environment.IsDevelopment())
-{
-    builder.AddXTestEmailing();
-}
-else
-{
-    builder.AddXEmailing();
-}
+builder.AddXEmailing();
 
 builder.Services.AddXMiscServices();
 
 var app = builder.Build();
+
+// Run migrations + seed data on startup
+await app.SeedDatabaseAsync();
 
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
@@ -73,9 +66,6 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
     app.MapOpenApi();
     app.UseXScalar();
-
-    // Endpoint to trigger migrations
-    app.MapPost("/eventing-db-migrate", (EventingDbContext dbContext) => dbContext.Database.MigrateAsync());
 }
 
 app.UseAuthentication();

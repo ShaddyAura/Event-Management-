@@ -1,0 +1,90 @@
+@inherits LayoutComponentBase
+@layout ParentLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+
+<div class="dbl-shell">
+    <!-- Admin Sidebar -->
+    <aside class="dbl-sidebar dbl-sidebar-admin">
+        <div class="dbl-sidebar-top">
+            <a href="/home" class="dbl-logo">MeetupX <span class="dbl-logo-role">Admin</span></a>
+        </div>
+
+        <nav class="dbl-nav">
+            <div class="dbl-nav-section">Administration</div>
+            <a href="/dashboard/admin" class="dbl-nav-link @IsActive("/dashboard/admin")">
+                <span class="dbl-nav-icon">⚡</span> Overview
+            </a>
+            <a href="/dashboard/admin/events" class="dbl-nav-link @IsActive("/dashboard/admin/events")">
+                <span class="dbl-nav-icon">🗓</span> Manage Events
+            </a>
+            <a href="/dashboard/admin/attendees" class="dbl-nav-link @IsActive("/dashboard/admin/attendees")">
+                <span class="dbl-nav-icon">👥</span> Attendees
+            </a>
+
+            <div class="dbl-nav-section">Public Site</div>
+            <a href="/home" class="dbl-nav-link">
+                <span class="dbl-nav-icon">🌐</span> Home Page
+            </a>
+            <a href="/events" class="dbl-nav-link">
+                <span class="dbl-nav-icon">📅</span> Browse Events
+            </a>
+            <a href="/about" class="dbl-nav-link">
+                <span class="dbl-nav-icon">ℹ️</span> About
+            </a>
+            <a href="/contact" class="dbl-nav-link">
+                <span class="dbl-nav-icon">✉️</span> Contact
+            </a>
+        </nav>
+
+        <div class="dbl-sidebar-bottom">
+            <div class="dbl-sidebar-user">
+                <div class="db-avatar dbl-user-av" style="background:linear-gradient(135deg,#e91e63,#7c3aed)">
+                    @_initials
+                </div>
+                <div class="dbl-user-meta">
+                    <span class="dbl-user-name">@_fullName</span>
+                    <span class="dbl-user-badge db-badge-admin">Admin</span>
+                </div>
+            </div>
+            <button class="dbl-logout" @onclick="LogoutAsync">⏻ Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="dbl-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    private string _fullName = "";
+    private string _initials = "A";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!await TokenService.IsAdminAsync())
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        _fullName = await TokenService.GetNameAsync() ?? "Admin";
+        _initials = _fullName.Length > 0 ? _fullName[0].ToString().ToUpper() : "A";
+        StateHasChanged();
+    }
+
+    private string IsActive(string href)
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        return path.Equals(href, StringComparison.OrdinalIgnoreCase) ? "dbl-nav-active" : "";
+    }
+
+    private async Task LogoutAsync()
+    {
+        await TokenService.LogoutAsync();
+        Nav.NavigateTo("/home", replace: true);
+    }
+}

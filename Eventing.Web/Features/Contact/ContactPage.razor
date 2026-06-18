@@ -1,0 +1,214 @@
+@page "/contact"
+@using Eventing.Web.Components.Layout
+@rendermode InteractiveServer
+@layout MainLayout
+
+<!-- Hero -->
+<section class="pg-hero">
+    <div class="pg-hero-content">
+        <span class="pg-hero-tag">Get in Touch</span>
+        <h1>Contact <span class="mx-accent">Us</span></h1>
+        <p>Have a question, suggestion, or partnership idea? We'd love to hear from you.</p>
+    </div>
+</section>
+
+<!-- Contact Body -->
+<section class="ct-section">
+    <div class="ct-grid">
+
+        <!-- Info Panel -->
+        <div class="ct-info-panel">
+            <h2>Let's talk</h2>
+            <p class="ct-info-sub">
+                Our team typically responds within 24 hours on business days.
+                Fill in the form and we'll get back to you as soon as possible.
+            </p>
+
+            <div class="ct-info-items">
+                <div class="ct-info-item">
+                    <div class="ct-info-icon" style="background:#e91e63;">📧</div>
+                    <div>
+                        <strong>Email</strong>
+                        <span>hello@meetupx.com</span>
+                    </div>
+                </div>
+                <div class="ct-info-item">
+                    <div class="ct-info-icon" style="background:#7c3aed;">📞</div>
+                    <div>
+                        <strong>Phone</strong>
+                        <span>+1 (800) 123-4567</span>
+                    </div>
+                </div>
+                <div class="ct-info-item">
+                    <div class="ct-info-icon" style="background:#2563eb;">📍</div>
+                    <div>
+                        <strong>Office</strong>
+                        <span>123 Innovation Street,<br />Los Angeles, CA 90001</span>
+                    </div>
+                </div>
+                <div class="ct-info-item">
+                    <div class="ct-info-icon" style="background:#059669;">🕐</div>
+                    <div>
+                        <strong>Hours</strong>
+                        <span>Mon–Fri, 9am – 6pm PST</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ct-social">
+                <h4>Follow us</h4>
+                <div class="mx-social-links">
+                    <a href="#" aria-label="Twitter">𝕏</a>
+                    <a href="#" aria-label="LinkedIn">in</a>
+                    <a href="#" aria-label="Instagram">📷</a>
+                    <a href="#" aria-label="Facebook">f</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact Form -->
+        <div class="ct-form-panel">
+            @if (_sent)
+            {
+                <div class="ct-success">
+                    <span class="ct-success-icon">✅</span>
+                    <h3>Message Sent!</h3>
+                    <p>Thanks for reaching out. We'll get back to you within 24 hours.</p>
+                    <button class="mx-btn-primary" @onclick="Reset">Send Another</button>
+                </div>
+            }
+            else
+            {
+                <h2>Send a Message</h2>
+                <p class="ct-form-sub">Fill in the form below and we'll be in touch.</p>
+
+                <div class="ct-form">
+                    <div class="ct-form-row">
+                        <div class="ct-form-group">
+                            <label>Full Name</label>
+                            <input class="auth-input" type="text" placeholder="Your full name"
+                                   @bind="_name" />
+                        </div>
+                        <div class="ct-form-group">
+                            <label>Email Address</label>
+                            <input class="auth-input" type="email" placeholder="your@email.com"
+                                   @bind="_email" />
+                        </div>
+                    </div>
+
+                    <div class="ct-form-group">
+                        <label>Subject</label>
+                        <input class="auth-input" type="text" placeholder="What's this about?"
+                               @bind="_subject" />
+                    </div>
+
+                    <div class="ct-form-group">
+                        <label>Topic</label>
+                        <select class="auth-input ct-select" @bind="_topic">
+                            <option value="">Select a topic</option>
+                            <option value="General">General Inquiry</option>
+                            <option value="Event">Event Support</option>
+                            <option value="Partnership">Partnership</option>
+                            <option value="Technical">Technical Issue</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div class="ct-form-group">
+                        <label>Message</label>
+                        <textarea class="auth-input ct-textarea"
+                                  placeholder="Tell us more..."
+                                  @bind="_message"></textarea>
+                    </div>
+
+                    @if (_validationError is not null)
+                    {
+                        <div class="auth-error">@_validationError</div>
+                    }
+
+                    <button class="auth-submit" @onclick="SubmitAsync" disabled="@_loading">
+                        @(_loading ? "Sending…" : "Send Message ➤")
+                    </button>
+                </div>
+            }
+        </div>
+
+    </div>
+</section>
+
+<!-- FAQ Strip -->
+<section class="ct-faq">
+    <div class="ct-faq-header">
+        <h2>Frequently Asked <span class="mx-underline">Questions</span></h2>
+    </div>
+    <div class="ct-faq-grid">
+        @foreach (var faq in _faqs)
+        {
+            <div class="ct-faq-item @(_openFaq == faq.Q ? "ct-faq-open" : "")"
+                 @onclick="() => ToggleFaq(faq.Q)">
+                <div class="ct-faq-q">
+                    <span>@faq.Q</span>
+                    <span class="ct-faq-arrow">@(_openFaq == faq.Q ? "▲" : "▼")</span>
+                </div>
+                @if (_openFaq == faq.Q)
+                {
+                    <div class="ct-faq-a">@faq.A</div>
+                }
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private string _name = "";
+    private string _email = "";
+    private string _subject = "";
+    private string _topic = "";
+    private string _message = "";
+    private bool _loading;
+    private bool _sent;
+    private string? _validationError;
+    private string? _openFaq;
+
+    private async Task SubmitAsync()
+    {
+        _validationError = null;
+
+        if (string.IsNullOrWhiteSpace(_name))       { _validationError = "Please enter your name."; return; }
+        if (string.IsNullOrWhiteSpace(_email))      { _validationError = "Please enter your email."; return; }
+        if (!_email.Contains('@'))                   { _validationError = "Please enter a valid email."; return; }
+        if (string.IsNullOrWhiteSpace(_subject))    { _validationError = "Please enter a subject."; return; }
+        if (string.IsNullOrWhiteSpace(_message))    { _validationError = "Please enter your message."; return; }
+
+        _loading = true;
+        await Task.Delay(800); // Simulate send
+        _loading = false;
+        _sent = true;
+    }
+
+    private void Reset()
+    {
+        _name = _email = _subject = _topic = _message = "";
+        _sent = false;
+        _validationError = null;
+    }
+
+    private void ToggleFaq(string q)
+        => _openFaq = _openFaq == q ? null : q;
+
+    private readonly List<(string Q, string A)> _faqs =
+    [
+        ("Is MeetupX free to use?",
+         "Yes! Discovering and attending events on MeetupX is completely free. Organizers may charge for premium events."),
+        ("How do I create an event?",
+         "Register for an account, log in, and click 'Create Event' from your dashboard. Fill in the details and publish."),
+        ("Can I attend events online?",
+         "Absolutely. We support both physical and virtual events. Virtual events include an online meeting link."),
+        ("How do I cancel my RSVP?",
+         "Go to your dashboard, find the event under 'My Events', and click 'Cancel RSVP'."),
+        ("How do I contact the event organizer?",
+         "Each event page has a contact option. You can also message organizers through your dashboard."),
+        ("Is my data safe?",
+         "We take privacy seriously. Your data is encrypted and never sold to third parties. See our Privacy Policy for details."),
+    ];
+}

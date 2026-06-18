@@ -1,0 +1,129 @@
+@page "/register"
+@rendermode InteractiveServer
+@using Eventing.Web.Components.Layout
+@layout MainLayout
+
+<div class="auth-page">
+    <!-- Left Panel -->
+    <div class="auth-left">
+        <span class="auth-date-badge">12-14 February 2025 · Los Angeles, CA</span>
+        <h1>Join<br /><span class="mx-accent">MeetupX</span></h1>
+        <p class="auth-sub">Create your account to register for the conference, get early bird offers, and stay updated.</p>
+
+        <div class="auth-features">
+            <div class="auth-feature-item">
+                <div class="auth-feature-icon" style="background:#e91e63;">👥</div>
+                <div>
+                    <strong>Connect</strong>
+                    <p>Network with innovators and industry leaders.</p>
+                </div>
+            </div>
+            <div class="auth-feature-item">
+                <div class="auth-feature-icon" style="background:#7c3aed;">📚</div>
+                <div>
+                    <strong>Learn</strong>
+                    <p>Access talks, workshops, and exclusive content.</p>
+                </div>
+            </div>
+            <div class="auth-feature-item">
+                <div class="auth-feature-icon" style="background:#059669;">🔔</div>
+                <div>
+                    <strong>Stay Updated</strong>
+                    <p>Be the first to know about events and offers.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="auth-left-footer">
+            <p>Already have an account? <a href="/login" class="auth-link">Sign In</a></p>
+        </div>
+    </div>
+
+    <!-- Right Panel -->
+    <div class="auth-right">
+        <div class="auth-card">
+            <h2>Create Your Account</h2>
+            <p class="auth-card-sub">Fill in the details below to get started.</p>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="auth-error">@_errorMessage</div>
+            }
+
+            @if (_successMessage)
+            {
+                <div class="auth-success">
+                    🎉 Account created! Please check your email to confirm your address, then <a href="/login" class="auth-link">sign in</a>.
+                </div>
+            }
+            else
+            {
+                <EditForm Model="_model" OnValidSubmit="SubmitAsync" FormName="Register">
+                    <DataAnnotationsValidator />
+
+                    <div class="auth-form-row">
+                        <div class="auth-form-group">
+                            <label>Full Name</label>
+                            <InputText @bind-Value="_model.Name" class="auth-input" placeholder="Enter your full name" />
+                            <ValidationMessage For="@(() => _model.Name)" class="auth-validation" />
+                        </div>
+                        <div class="auth-form-group">
+                            <label>Email Address</label>
+                            <InputText @bind-Value="_model.Email" class="auth-input" placeholder="Enter your email address" type="email" />
+                            <ValidationMessage For="@(() => _model.Email)" class="auth-validation" />
+                        </div>
+                    </div>
+
+                    <div class="auth-form-row">
+                        <div class="auth-form-group">
+                            <label>Password</label>
+                            <div class="auth-input-wrap">
+                                <InputText @bind-Value="_model.Password" class="auth-input"
+                                           placeholder="Create a password"
+                                           type="@(_showPassword ? "text" : "password")" />
+                                <button type="button" class="auth-eye" @onclick="TogglePassword">
+                                    @(_showPassword ? "🙈" : "👁")
+                                </button>
+                            </div>
+                            <ValidationMessage For="@(() => _model.Password)" class="auth-validation" />
+                        </div>
+                        <div class="auth-form-group">
+                            <label>Confirm Password</label>
+                            <div class="auth-input-wrap">
+                                <InputText @bind-Value="_model.ConfirmPassword" class="auth-input"
+                                           placeholder="Confirm your password"
+                                           type="@(_showConfirmPassword ? "text" : "password")" />
+                                <button type="button" class="auth-eye" @onclick="ToggleConfirmPassword">
+                                    @(_showConfirmPassword ? "🙈" : "👁")
+                                </button>
+                            </div>
+                            <ValidationMessage For="@(() => _model.ConfirmPassword)" class="auth-validation" />
+                        </div>
+                    </div>
+
+                    <div class="auth-form-group auth-terms">
+                        <label class="auth-remember">
+                            <InputCheckbox @bind-Value="_model.AgreeToTerms" />
+                            <span>I agree to the <a href="#" class="auth-link">Terms &amp; Conditions</a> and <a href="#" class="auth-link">Privacy Policy</a>.</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="auth-submit" disabled="@(_isLoading || !_model.AgreeToTerms)">
+                        @if (_isLoading)
+                        {
+                            <span>Creating Account…</span>
+                        }
+                        else
+                        {
+                            <span>Create Account</span>
+                        }
+                    </button>
+                </EditForm>
+            }
+
+            <p class="auth-switch">
+                Already have an account? <a href="/login" class="auth-link">Sign In</a>
+            </p>
+        </div>
+    </div>
+</div>

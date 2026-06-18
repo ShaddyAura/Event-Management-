@@ -1,0 +1,233 @@
+@page "/events"
+@using Eventing.Web.Components.Layout
+@using Eventing.Web.Features.Events.Models
+@rendermode InteractiveServer
+@layout MainLayout
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Nav
+@inject TokenService TokenService
+
+<!-- Page Hero -->
+<section class="pg-hero">
+    <div class="pg-hero-content">
+        <span class="pg-hero-tag">Discover &amp; Connect</span>
+        <h1>Upcoming <span class="mx-accent">Events</span></h1>
+        <p>Browse conferences, workshops, webinars and meetups happening near you or online.</p>
+    </div>
+</section>
+
+<!-- Filters -->
+<section class="ev-filters-bar">
+    <div class="ev-search-wrap">
+        <span class="ev-search-icon">🔍</span>
+        <input class="ev-search-input" type="text" placeholder="Search events..."
+               @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
+    </div>
+    <div class="ev-filter-pills">
+        <button class="ev-filter-btn @(_filter == "All" ? "ev-filter-active" : "")"
+                @onclick='() => SetFilter("All")'>All</button>
+        <button class="ev-filter-btn @(_filter == "Physical" ? "ev-filter-active" : "")"
+                @onclick='() => SetFilter("Physical")'>📍 In-Person</button>
+        <button class="ev-filter-btn @(_filter == "Virtual" ? "ev-filter-active" : "")"
+                @onclick='() => SetFilter("Virtual")'>🌐 Virtual</button>
+    </div>
+</section>
+
+<!-- Events Grid -->
+<section class="ev-section">
+    @if (_loading)
+    {
+        <div class="db-loading"><span class="db-spinner"></span></div>
+    }
+    else if (_filtered.Count == 0)
+    {
+        <div class="ev-empty">
+            <span>📭</span>
+            <p>No events found. Try a different search or filter.</p>
+        </div>
+    }
+    else
+    {
+        <div class="ev-grid">
+            @foreach (var ev in _filtered)
+            {
+                var isRegistered = _registeredIds.Contains(ev.Id);
+                var regId = _registrations.FirstOrDefault(r => r.EventId == ev.Id)?.AttendeeId;
+
+                <div class="ev-card">
+                    <div class="ev-card-header" style="background:@GetGradient(ev.LocationType)">
+                        <span class="ev-type-badge">@(ev.LocationType == "Virtual" ? "🌐 Virtual" : "📍 In-Person")</span>
+                        <span class="ev-card-date">@ev.StartTime.ToString("MMM dd")</span>
+                    </div>
+                    <div class="ev-card-body">
+                        <h3 class="ev-card-title">@ev.Title</h3>
+                        <p class="ev-card-desc">@(ev.Description?.Length > 90 ? ev.Description[..90] + "…" : ev.Description ?? "No description.")</p>
+                        <div class="ev-card-meta">
+                            <span>📅 @ev.StartTime.ToString("ddd, MMM dd yyyy")</span>
+                            <span>⏰ @ev.StartTime.ToString("hh:mm tt") – @ev.EndTime.ToString("hh:mm tt")</span>
+                            <span>📌 @ev.Location</span>
+                        </div>
+                    </div>
+                    <div class="ev-card-footer">
+                        @if (!_isAuthenticated)
+                        {
+                            <a href="/login" class="mx-btn-primary ev-rsvp-btn">Sign in to Register</a>
+                        }
+                        else if (isRegistered && regId.HasValue)
+                        {
+                            <div class="ev-registered-row">
+                                <span class="db-pill db-pill-green">✅ Registered</span>
+                                <a href="/ticket/@regId" class="mx-btn-outline ev-ticket-btn">🎟 View Ticket</a>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="mx-btn-primary ev-rsvp-btn"
+                                    disabled="@(_registering == ev.Id)"
+                                    @onclick="() => RegisterAsync(ev)">
+                                @(_registering == ev.Id ? "Registering…" : "Register Now")
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</section>
+
+<!-- Success toast -->
+@if (_successMsg is not null)
+{
+    <div class="ev-toast">
+        🎉 @_successMsg
+        <button @onclick='() => _successMsg = null'>✕</button>
+    </div>
+}
+
+<!-- CTA Banner -->
+<section class="ev-cta-banner">
+    <div>
+        <h2>Have an event to share?</h2>
+        <p>Create and publish your own event on MeetupX and reach thousands of attendees.</p>
+    </div>
+    <a href="@(_isAuthenticated ? "/dashboard/admin/events" : "/login")" class="mx-btn-primary">
+        Create Event
+    </a>
+</section>
+
+@code {
+    private List<EventDto> _events = [];
+    private List<EventDto> _filtered = [];
+    private List<RegistrationDto> _registrations = [];
+    private HashSet<Guid> _registeredIds = [];
+    private string _search = "";
+    private string _filter = "All";
+    private bool _loading = true;
+    private bool _isAuthenticated;
+    private Guid? _registering;
+    private string? _successMsg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isAuthenticated = await TokenService.IsAuthenticatedAsync();
+        await LoadEventsAsync();
+        if (_isAuthenticated) await LoadMyRegistrationsAsync();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _loading = true;
+        try
+        {
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            _events = await client.GetFromJsonAsync<List<EventDto>>("api/events") ?? [];
+        }
+        catch { _events = GetSampleEvents(); }
+        finally { _loading = false; ApplyFilters(); }
+    }
+
+    private async Task LoadMyRegistrationsAsync()
+    {
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _registrations = await client.GetFromJsonAsync<List<RegistrationDto>>("api/attendees/my-events") ?? [];
+            _registeredIds = _registrations.Select(r => r.EventId).ToHashSet();
+        }
+        catch { _registrations = []; _registeredIds = []; }
+    }
+
+    private async Task RegisterAsync(EventDto ev)
+    {
+        _registering = ev.Id;
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await client.PostAsync($"api/attendees/events/{ev.Id}/register", null);
+
+            if (resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var reg = await resp.Content.ReadFromJsonAsync<RegistrationDto>();
+                if (reg is not null)
+                {
+                    _registrations.RemoveAll(r => r.EventId == ev.Id);
+                    _registrations.Add(reg);
+                    _registeredIds.Add(ev.Id);
+                    _successMsg = $"You're registered for \"{ev.Title}\"! View your ticket below.";
+                }
+            }
+        }
+        catch { }
+        finally { _registering = null; }
+    }
+
+    private void SetFilter(string filter) { _filter = filter; ApplyFilters(); }
+
+    private void ApplyFilters()
+    {
+        _filtered = _events
+            .Where(e =>
+                (string.IsNullOrWhiteSpace(_search) ||
+                 e.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                 (e.Description?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                 e.Location.Contains(_search, StringComparison.OrdinalIgnoreCase))
+                && (_filter == "All" || e.LocationType == _filter))
+            .OrderByDescending(e => e.StartTime)
+            .ToList();
+    }
+
+    private static string GetGradient(string t) =>
+        t == "Virtual" ? "linear-gradient(135deg,#1a0a2e,#0d1a2e)"
+                       : "linear-gradient(135deg,#1a0a1a,#2e0a1a)";
+
+    private static List<EventDto> GetSampleEvents() =>
+    [
+        new(Guid.NewGuid(), "Tech Innovators Conference 2025",
+            "A multi-day conference featuring talks from leading tech innovators.",
+            new DateTime(2025, 9, 10, 9, 0, 0), new DateTime(2025, 9, 12, 17, 0, 0),
+            "Physical", "Grand Convention Center, New York", "Upcoming",
+            Guid.Empty, DateTime.UtcNow.AddMonths(-3), null),
+        new(Guid.NewGuid(), "AI Ethics Webinar",
+            "Online seminar discussing ethical considerations in AI development.",
+            DateTime.UtcNow.AddDays(15).AddHours(15), DateTime.UtcNow.AddDays(15).AddHours(17),
+            "Virtual", "https://zoom.us/j/123-4567", "Upcoming",
+            Guid.Empty, DateTime.UtcNow.AddMonths(-1), null),
+        new(Guid.NewGuid(), "Startup Pitch Night",
+            "Local startups pitch their ideas to potential investors.",
+            DateTime.UtcNow.AddDays(30).AddHours(19), DateTime.UtcNow.AddDays(30).AddHours(22),
+            "Physical", "Innovation Hub Auditorium", "Upcoming",
+            Guid.Empty, DateTime.UtcNow.AddDays(-60), null),
+        new(Guid.NewGuid(), "Cloud Computing Workshop",
+            "Learn the fundamentals of cloud computing and AWS.",
+            DateTime.UtcNow.AddDays(10).AddHours(14), DateTime.UtcNow.AddDays(10).AddHours(16),
+            "Physical", "City Library Hall", "Upcoming",
+            Guid.Empty, DateTime.UtcNow.AddDays(-10), null),
+    ];
+}

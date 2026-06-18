@@ -22,7 +22,8 @@ public sealed class Attendee
     public Guid ResponderId { get; set; }
     [ForeignKey(nameof(ResponderId))] public Profile Responder { get; set; } = null!;
 
-    public bool IsOrganizer { get; set; }
+    public bool IsOrganizer { get; set; } = false;
+    public bool Attended { get; set; } = false;
 
     public RsvpResponse RsvpResponse { get; set; } = RsvpResponse.Pending;
 

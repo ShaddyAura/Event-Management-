@@ -1,40 +1,122 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 @layout ParentLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
 
-<FluentLayout Style="min-height:100vh; display:flex; flex-direction:column;">
+<div class="mx-layout">
 
-    <!-- Header -->
-    <FluentHeader Style="background:#111; color:white; padding:1rem; font-size:1.5rem; font-weight:bold;">
-        Evento
-        <FluentSpacer />
-        <FluentButton Href="/" Appearance="Appearance.Stealth" Icon="home-24-regular">Home</FluentButton>
-        <FluentButton Href="/events" Appearance="Appearance.Stealth" Icon="calendar-24-regular">Events</FluentButton>
-        <FluentButton Href="/about" Appearance="Appearance.Stealth" Icon="info-24-regular">About</FluentButton>
-        <FluentButton Href="/contact" Appearance="Appearance.Stealth" Icon="call-24-regular">Contact</FluentButton>
-    </FluentHeader>
+    <!-- Navbar -->
+    <header class="mx-navbar">
+        <a href="/home" class="mx-logo">MeetupX</a>
+        <nav class="mx-nav-links">
+            <a href="/home" class="mx-nav-link @IsActive("/home")">Home</a>
+            <a href="/events" class="mx-nav-link @IsActive("/events")">Events</a>
+            @if (_isAuth)
+            {
+                <a href="@(_isAdmin ? "/dashboard/admin" : "/dashboard")" class="mx-nav-link @IsActive(_isAdmin ? "/dashboard/admin" : "/dashboard")">Dashboard</a>
+            }
+            <a href="/about" class="mx-nav-link @IsActive("/about")">About</a>
+            <a href="/contact" class="mx-nav-link @IsActive("/contact")">Contact</a>
+        </nav>
+        @if (_isAuth)
+        {
+            <div class="mx-nav-user">
+                <span class="mx-nav-name">👋 @_displayName</span>
+                <a href="@(_isAdmin ? "/dashboard/admin" : "/dashboard")" class="mx-btn-primary mx-nav-cta">
+                    Dashboard
+                </a>
+            </div>
+        }
+        else
+        {
+            <a href="/login" class="mx-btn-primary mx-nav-cta">Get Tickets</a>
+        }
+    </header>
 
-    <!-- Body -->
-    <FluentBodyContent Style="flex:1; padding:1.5rem;">
+    <!-- Page Content -->
+    <main class="mx-main">
         @Body
-    </FluentBodyContent>
+    </main>
 
     <!-- Footer -->
-    <FluentFooter Style="background:#111; color:white; padding:1rem; text-align:center;">
-        <span>© 2025 Evento. All rights reserved.</span>
-        <FluentSpacer />
-        <FluentButton Appearance="Appearance.Stealth" Icon="globe-24-regular" Href="https://www.fluentui-blazor.net" Target="_blank">
-            Docs
-        </FluentButton>
-        <FluentButton Appearance="Appearance.Stealth" Icon="info-24-regular" Href="https://learn.microsoft.com/en-us/aspnet/core/blazor" Target="_blank">
-            About Blazor
-        </FluentButton>
-    </FluentFooter>
+    <footer class="mx-footer">
+        <div class="mx-footer-grid">
+            <div class="mx-footer-brand">
+                <span class="mx-logo">MeetupX</span>
+                <p>Let's create the future together.</p>
+                <div class="mx-social-links">
+                    <a href="#" aria-label="Twitter">𝕏</a>
+                    <a href="#" aria-label="LinkedIn">in</a>
+                    <a href="#" aria-label="Instagram">📷</a>
+                    <a href="#" aria-label="Facebook">f</a>
+                </div>
+            </div>
+            <div class="mx-footer-col">
+                <h4>Quick Links</h4>
+                <a href="/home">Home</a>
+                <a href="/events">Events</a>
+                <a href="/about">About</a>
+                <a href="/contact">Contact</a>
+            </div>
+            <div class="mx-footer-col">
+                <h4>Resources</h4>
+                <a href="#">FAQs</a>
+                <a href="#">Privacy Policy</a>
+                <a href="#">Terms &amp; Conditions</a>
+            </div>
+            <div class="mx-footer-col">
+                <h4>Newsletter</h4>
+                <p>Stay updated with our latest events</p>
+                <div class="mx-newsletter">
+                    <input type="email" placeholder="Enter your email" class="mx-newsletter-input" />
+                    <button class="mx-newsletter-btn">➤</button>
+                </div>
+            </div>
+        </div>
+        <div class="mx-footer-bottom">
+            <span>© 2025 MeetupX. All rights reserved.</span>
+        </div>
+    </footer>
 
-</FluentLayout>
+</div>
 
 <!-- Error UI -->
-<div id="blazor-error-ui" style="background:#ff0040; color:white; padding:0.75rem; display:none;">
+<div id="blazor-error-ui">
     An unhandled error has occurred.
-    <a href="." style="color:white; text-decoration:underline;">Reload</a>
-    <span class="dismiss" style="margin-left:1rem; cursor:pointer;">🗙</span>
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private bool _isAuth;
+    private bool _isAdmin;
+    private string _displayName = "";
+
+    // Pages that should redirect authenticated users to their dashboard
+    private static readonly string[] _authOnlyPages = ["/login", "/register"];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _isAuth  = await TokenService.IsAuthenticatedAsync();
+        _isAdmin = await TokenService.IsAdminAsync();
+        _displayName = await TokenService.GetNameAsync() ?? "";
+
+        // If authenticated user lands on login/register, send them to their dashboard
+        var path = new Uri(Nav.Uri).AbsolutePath.ToLowerInvariant().TrimEnd('/');
+        if (_isAuth && _authOnlyPages.Contains(path))
+        {
+            Nav.NavigateTo(_isAdmin ? "/dashboard/admin" : "/dashboard", replace: true);
+            return;
+        }
+
+        StateHasChanged();
+    }
+
+    private string IsActive(string href)
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        return path.Equals(href, StringComparison.OrdinalIgnoreCase) ? "mx-nav-active" : "";
+    }
+}

@@ -1,0 +1,84 @@
+@inherits LayoutComponentBase
+@layout ParentLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+
+<div class="dbl-shell">
+    <!-- User Sidebar -->
+    <aside class="dbl-sidebar dbl-sidebar-user-panel">
+        <div class="dbl-sidebar-top">
+            <a href="/home" class="dbl-logo">MeetupX</a>
+        </div>
+
+        <nav class="dbl-nav">
+            <div class="dbl-nav-section">My Space</div>
+            <a href="/dashboard" class="dbl-nav-link @IsActive("/dashboard")">
+                <span class="dbl-nav-icon">🏠</span> My Dashboard
+            </a>
+            <a href="/dashboard/browse-events" class="dbl-nav-link @IsActive("/dashboard/browse-events")">
+                <span class="dbl-nav-icon">🔍</span> Browse Events
+            </a>
+
+            <div class="dbl-nav-section">Pages</div>
+            <a href="/home" class="dbl-nav-link">
+                <span class="dbl-nav-icon">🌐</span> Home
+            </a>
+            <a href="/about" class="dbl-nav-link">
+                <span class="dbl-nav-icon">ℹ️</span> About
+            </a>
+            <a href="/contact" class="dbl-nav-link">
+                <span class="dbl-nav-icon">✉️</span> Contact
+            </a>
+        </nav>
+
+        <div class="dbl-sidebar-bottom">
+            <div class="dbl-sidebar-user">
+                <div class="db-avatar dbl-user-av" style="background:linear-gradient(135deg,#7c3aed,#2563eb)">
+                    @_initials
+                </div>
+                <div class="dbl-user-meta">
+                    <span class="dbl-user-name">@_fullName</span>
+                    <span class="dbl-user-badge db-badge-general">Member</span>
+                </div>
+            </div>
+            <button class="dbl-logout" @onclick="LogoutAsync">⏻ Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="dbl-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    private string _fullName = "";
+    private string _initials = "U";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!await TokenService.IsAuthenticatedAsync())
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        _fullName = await TokenService.GetNameAsync() ?? "User";
+        _initials = _fullName.Length > 0 ? _fullName[0].ToString().ToUpper() : "U";
+        StateHasChanged();
+    }
+
+    private string IsActive(string href)
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        return path.Equals(href, StringComparison.OrdinalIgnoreCase) ? "dbl-nav-active" : "";
+    }
+
+    private async Task LogoutAsync()
+    {
+        await TokenService.LogoutAsync();
+        Nav.NavigateTo("/home", replace: true);
+    }
+}

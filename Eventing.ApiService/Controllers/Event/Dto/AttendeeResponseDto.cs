@@ -9,6 +9,7 @@ public sealed record AttendeeResponseDto(
     string? Comment,
     DateTime? RespondedAt,
     DateTime? UpdatedAt,
+    bool Attended,
     AttendeeInfo Responder
 );
 

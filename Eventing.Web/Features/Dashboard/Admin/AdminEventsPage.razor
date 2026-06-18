@@ -1,0 +1,350 @@
+@page "/dashboard/admin/events"
+@using Eventing.Web.Components.Layout
+@rendermode InteractiveServer
+@layout AdminDashboardLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+@if (!_ready)
+{
+    <div class="db-loading"><span class="db-spinner"></span></div>
+}
+else
+{
+    <div class="dbd-page">
+        <div class="dbd-header">
+            <div>
+                <h1 class="dbd-title">Manage <span class="mx-accent">Events</span></h1>
+                <p class="dbd-subtitle">Create, edit and delete events.</p>
+            </div>
+            <button class="mx-btn-primary" @onclick="OpenCreate">➕ New Event</button>
+        </div>
+
+        <!-- Event list -->
+        <div class="db-card">
+            @if (_loading)
+            {
+                <div style="padding:2rem;text-align:center;color:#606070;">Loading…</div>
+            }
+            else if (_events.Count == 0)
+            {
+                <div class="dbd-empty"><span>📭</span><p>No events yet.</p></div>
+            }
+            else
+            {
+                <table class="db-table">
+                    <thead>
+                        <tr>
+                            <th>Title</th><th>Type</th><th>Start</th><th>End</th><th>Status</th><th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ev in _events)
+                        {
+                            <tr>
+                                <td class="dbd-event-title">@ev.Title</td>
+                                <td>
+                                    <span class="db-pill @(ev.LocationType == "Virtual" ? "db-pill-blue" : "db-pill-green")">
+                                        @(ev.LocationType == "Virtual" ? "🌐" : "📍") @ev.LocationType
+                                    </span>
+                                </td>
+                                <td>@ev.StartTime.ToString("MMM dd yyyy, hh:mm tt")</td>
+                                <td>@ev.EndTime.ToString("MMM dd yyyy, hh:mm tt")</td>
+                                <td>
+                                    @if (ev.Status == "Cancelled")
+                                    { <span class="db-pill db-pill-danger">Cancelled</span> }
+                                    else if (ev.Status == "Ended" || ev.EndTime < DateTime.UtcNow)
+                                    { <span class="db-pill db-pill-gray">Ended</span> }
+                                    else if (ev.Status == "Live" || (ev.StartTime <= DateTime.UtcNow && ev.EndTime >= DateTime.UtcNow))
+                                    { <span class="db-pill db-pill-green">Live</span> }
+                                    else
+                                    { <span class="db-pill db-pill-purple">Upcoming</span> }
+                                </td>
+                                <td>
+                                    <div class="dbd-action-btns">
+                                        <button class="dbd-icon-btn dbd-edit" @onclick="() => OpenEdit(ev)">✏️</button>
+                                        <button class="dbd-icon-btn dbd-view" @onclick="() => ViewAttendees(ev)">👥</button>
+                                        <button class="dbd-icon-btn dbd-delete" @onclick="() => SetDelete(ev)">🗑</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <!-- Create / Edit Form Modal -->
+    @if (_showForm)
+    {
+        <div class="dbd-modal-overlay" @onclick="CloseForm">
+            <div class="dbd-modal dbd-modal-lg" @onclick:stopPropagation="true">
+                <h3>@(_editing ? "Edit Event" : "Create Event")</h3>
+
+                @if (_formError is not null)
+                {
+                    <div class="auth-error">@_formError</div>
+                }
+
+                <div class="ct-form-row">
+                    <div class="ct-form-group">
+                        <label>Title</label>
+                        <input class="auth-input" @bind="_form.Title" placeholder="Event title" />
+                    </div>
+                    <div class="ct-form-group">
+                        <label>Location Type</label>
+                        <select class="auth-input ct-select" @bind="_form.LocationType">
+                            <option value="Physical">📍 Physical</option>
+                            <option value="Virtual">🌐 Virtual</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ct-form-group">
+                    <label>Description</label>
+                    <textarea class="auth-input ct-textarea" @bind="_form.Description"
+                              placeholder="Describe the event..." style="min-height:80px;"></textarea>
+                </div>
+                <div class="ct-form-row">
+                    <div class="ct-form-group">
+                        <label>Start Time</label>
+                        <input class="auth-input" type="datetime-local" @bind="_form.StartTime" />
+                    </div>
+                    <div class="ct-form-group">
+                        <label>End Time</label>
+                        <input class="auth-input" type="datetime-local" @bind="_form.EndTime" />
+                    </div>
+                </div>
+                <div class="ct-form-row">
+                    <div class="ct-form-group">
+                        <label>Location / URL</label>
+                        <input class="auth-input" @bind="_form.Location"
+                               placeholder="Address or meeting link" />
+                    </div>
+                    <div class="ct-form-group">
+                        <label>Event Status</label>
+                        <select class="auth-input ct-select" @bind="_form.Status">
+                            <option value="Upcoming">Upcoming</option>
+                            <option value="Live">Live</option>
+                            <option value="Ended">Ended</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ct-form-group">
+                    <label class="auth-remember">
+                        <input type="checkbox" @bind="_form.ShowAttendees" />
+                        <span>Show attendee list publicly</span>
+                    </label>
+                </div>
+
+                <div class="dbd-modal-actions">
+                    <button class="dbd-modal-cancel" @onclick="CloseForm">Cancel</button>
+                    <button class="mx-btn-primary" @onclick="SaveEventAsync" disabled="@_saving">
+                        @(_saving ? "Saving…" : (_editing ? "Update" : "Create"))
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Delete Confirm -->
+    @if (_deleteTarget is not null)
+    {
+        <div class="dbd-modal-overlay" @onclick="CancelDelete">
+            <div class="dbd-modal" @onclick:stopPropagation="true">
+                <h3>Delete Event</h3>
+                <p>Are you sure you want to delete <strong>@_deleteTarget.Title</strong>?</p>
+                <div class="dbd-modal-actions">
+                    <button class="dbd-modal-cancel" @onclick="CancelDelete">Cancel</button>
+                    <button class="dbd-modal-confirm" @onclick="DeleteAsync">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool _ready, _loading, _showForm, _editing, _saving;
+    private string? _formError;
+    private List<EventItem> _events = [];
+    private EventItem? _deleteTarget;
+    private Guid _editId;
+
+    private EventForm _form = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        if (!await TokenService.IsAdminAsync()) { Nav.NavigateTo("/login", replace: true); return; }
+        await LoadAsync();
+        _ready = true;
+
+        // Check for ?edit= query param
+        var uri = new Uri(Nav.Uri);
+        var qs = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var editId = qs["edit"];
+        if (!string.IsNullOrEmpty(editId) && Guid.TryParse(editId, out var id))
+        {
+            var ev = _events.FirstOrDefault(e => e.Id == id);
+            if (ev is not null) OpenEdit(ev);
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var client = await AuthedClient();
+            _events = await client.GetFromJsonAsync<List<EventItem>>("api/events") ?? [];
+        }
+        catch { _events = []; }
+        _loading = false;
+    }
+
+    private void OpenCreate()
+    {
+        _form = new EventForm 
+        { 
+            StartTime = DateTime.Now.AddDays(7), 
+            EndTime = DateTime.Now.AddDays(7).AddHours(2),
+            Status = "Upcoming"
+        };
+        _editing = false;
+        _editId = Guid.Empty;
+        _formError = null;
+        _showForm = true;
+    }
+
+    private void OpenEdit(EventItem ev)
+    {
+        _form = new EventForm
+        {
+            Title = ev.Title,
+            Description = ev.Description ?? "",
+            StartTime = ev.StartTime,
+            EndTime = ev.EndTime,
+            LocationType = ev.LocationType,
+            Location = ev.Location,
+            ShowAttendees = false,
+            Status = ev.Status
+        };
+        _editing = true;
+        _editId = ev.Id;
+        _formError = null;
+        _showForm = true;
+    }
+
+    private void CloseForm() { _showForm = false; _formError = null; }
+
+    private async Task SaveEventAsync()
+    {
+        // Guard against double-click / double-submission
+        if (_saving) return;
+
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_form.Title))    { _formError = "Title is required."; return; }
+        if (string.IsNullOrWhiteSpace(_form.Location)) { _formError = "Location is required."; return; }
+        if (_form.EndTime <= _form.StartTime)           { _formError = "End time must be after start time."; return; }
+
+        // Set saving immediately and re-render to disable the button BEFORE the async call
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            var client = await AuthedClient();
+
+            var payload = new
+            {
+                _form.Title,
+                _form.Description,
+                StartTime    = _form.StartTime.ToUniversalTime(),
+                EndTime      = _form.EndTime.ToUniversalTime(),
+                LocationType = _form.LocationType,
+                _form.Location,
+                _form.ShowAttendees,
+                Status       = _form.Status
+            };
+
+            HttpResponseMessage resp;
+            if (_editing)
+                resp = await client.PutAsJsonAsync($"api/events/{_editId}", payload);
+            else
+                resp = await client.PostAsJsonAsync("api/events", payload);
+
+            if (resp.IsSuccessStatusCode)
+            {
+                _showForm = false;
+                _formError = null;
+                await LoadAsync();
+            }
+            else
+            {
+                var body = await resp.Content.ReadAsStringAsync();
+                _formError = $"Failed ({(int)resp.StatusCode}): {body[..Math.Min(200, body.Length)]}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetDelete(EventItem ev) => _deleteTarget = ev;
+    private void CancelDelete() => _deleteTarget = null;
+
+    private async Task DeleteAsync()
+    {
+        if (_deleteTarget is null) return;
+        try
+        {
+            var client = await AuthedClient();
+            await client.DeleteAsync($"api/events/{_deleteTarget.Id}");
+            _events.Remove(_deleteTarget);
+        }
+        catch { }
+        _deleteTarget = null;
+        StateHasChanged();
+    }
+
+    private void ViewAttendees(EventItem ev)
+        => Nav.NavigateTo($"/dashboard/admin/attendees?eventId={ev.Id}");
+
+    private async Task<System.Net.Http.HttpClient> AuthedClient()
+    {
+        var token = await TokenService.GetTokenAsync();
+        var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    private sealed class EventForm
+    {
+        public string Title { get; set; } = "";
+        public string Description { get; set; } = "";
+        public DateTime StartTime { get; set; } = DateTime.Now.AddDays(7);
+        public DateTime EndTime { get; set; } = DateTime.Now.AddDays(7).AddHours(2);
+        public string LocationType { get; set; } = "Physical";
+        public string Location { get; set; } = "";
+        public bool ShowAttendees { get; set; } = true;
+        public string Status { get; set; } = "Upcoming";
+    }
+
+    private sealed record EventItem(
+        Guid Id, string Title, string? Description,
+        DateTime StartTime, DateTime EndTime,
+        string LocationType, string Location,
+        string Status, Guid CreatedBy, DateTime CreatedAt, DateTime? UpdatedAt);
+}

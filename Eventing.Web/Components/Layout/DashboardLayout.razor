@@ -1,0 +1,105 @@
+@inherits LayoutComponentBase
+@layout ParentLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+
+<div class="dbl-shell">
+    <!-- Sidebar -->
+    <aside class="dbl-sidebar">
+        <div class="dbl-sidebar-top">
+            <a href="/home" class="dbl-logo">MeetupX</a>
+        </div>
+
+        <nav class="dbl-nav">
+            @if (_isAdmin)
+            {
+                <div class="dbl-nav-section">Admin</div>
+                <a href="/dashboard/admin" class="dbl-nav-link @IsActive("/dashboard/admin")">
+                    <span>⚡</span> Overview
+                </a>
+                <a href="/dashboard/admin/events" class="dbl-nav-link @IsActive("/dashboard/admin/events")">
+                    <span>🗓</span> Manage Events
+                </a>
+                <a href="/dashboard/admin/attendees" class="dbl-nav-link @IsActive("/dashboard/admin/attendees")">
+                    <span>👥</span> Attendees
+                </a>
+            }
+            else
+            {
+                <div class="dbl-nav-section">My Space</div>
+                <a href="/dashboard" class="dbl-nav-link @IsActive("/dashboard")">
+                    <span>🏠</span> Overview
+                </a>
+                <a href="/dashboard/my-events" class="dbl-nav-link @IsActive("/dashboard/my-events")">
+                    <span>🎟</span> My Events
+                </a>
+                <a href="/events" class="dbl-nav-link">
+                    <span>🔍</span> Browse Events
+                </a>
+            }
+
+            <div class="dbl-nav-section">General</div>
+            <a href="/home" class="dbl-nav-link"><span>🌐</span> Home</a>
+            <a href="/events" class="dbl-nav-link"><span>📅</span> All Events</a>
+            <a href="/about" class="dbl-nav-link"><span>ℹ️</span> About</a>
+            <a href="/contact" class="dbl-nav-link"><span>✉️</span> Contact</a>
+        </nav>
+
+        <div class="dbl-sidebar-bottom">
+            <div class="dbl-sidebar-user">
+                <div class="db-avatar dbl-user-av">@_initials</div>
+                <div class="dbl-user-meta">
+                    <span class="dbl-user-name">@_userName</span>
+                    <span class="dbl-user-badge @(_isAdmin ? "db-badge-admin" : "db-badge-general")">
+                        @(_isAdmin ? "Admin" : "Member")
+                    </span>
+                </div>
+            </div>
+            <button class="dbl-logout" @onclick="LogoutAsync">⏻ Sign Out</button>
+        </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="dbl-main">
+        @Body
+    </main>
+</div>
+
+@code {
+    private bool _isAdmin;
+    private string _userName = "";
+    private string _initials = "?";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _isAdmin = await TokenService.IsAdminAsync();
+            _userName = await TokenService.GetNameAsync() ?? (_isAdmin ? "Admin" : "User");
+            _initials = _userName.Length > 0 ? _userName[0].ToString().ToUpper() : "?";
+        }
+        catch
+        {
+            // Storage unavailable during SSR pre-render — values will update after render
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        // Re-load after interactive render when storage is available
+        _isAdmin = await TokenService.IsAdminAsync();
+        _userName = await TokenService.GetNameAsync() ?? (_isAdmin ? "Admin" : "User");
+        _initials = _userName.Length > 0 ? _userName[0].ToString().ToUpper() : "?";
+        StateHasChanged();
+    }
+
+    private string IsActive(string href)
+        => Nav.Uri.EndsWith(href, StringComparison.OrdinalIgnoreCase) ? "dbl-nav-active" : "";
+
+    private async Task LogoutAsync()
+    {
+        await TokenService.LogoutAsync();
+        Nav.NavigateTo("/login", replace: true);
+    }
+}

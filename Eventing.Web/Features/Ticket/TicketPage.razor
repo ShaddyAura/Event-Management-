@@ -1,0 +1,183 @@
+@page "/ticket/{AttendeeId:guid}"
+@using Eventing.Web.Components.Layout
+@using Eventing.Web.Features.Events.Models
+@rendermode InteractiveServer
+@layout UserDashboardLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+@inject IJSRuntime JS
+
+@if (!_ready)
+{
+    <div class="db-loading"><span class="db-spinner"></span></div>
+}
+else if (_ticket is null)
+{
+    <div class="tk-error-page">
+        <span>🎟️</span>
+        <h2>Ticket Not Found</h2>
+        <p>We couldn't find this ticket. It may have been cancelled.</p>
+        <a href="/dashboard" class="mx-btn-primary">Back to Dashboard</a>
+    </div>
+}
+else
+{
+    <div class="tk-page">
+        <!-- Action bar (hidden on print) -->
+        <div class="tk-actions no-print">
+            <a href="/dashboard" class="mx-btn-outline">← Back to Dashboard</a>
+            <button class="mx-btn-primary" @onclick="PrintTicket">🖨️ Download / Print Ticket</button>
+        </div>
+
+        <!-- Ticket card -->
+        <div class="tk-card" id="ticket-card">
+            <!-- Header -->
+            <div class="tk-header">
+                <div class="tk-brand">MeetupX</div>
+                <div class="tk-event-type-badge">
+                    @(_ticket.LocationType == "Virtual" ? "🌐 Virtual Event" : "📍 In-Person Event")
+                </div>
+            </div>
+
+            <!-- Event name -->
+            <div class="tk-event-name">
+                <h1>@_ticket.EventTitle</h1>
+            </div>
+
+            <!-- Details grid -->
+            <div class="tk-details">
+                <div class="tk-detail-item">
+                    <span class="tk-detail-icon">📅</span>
+                    <div>
+                        <span class="tk-detail-label">Date</span>
+                        <span class="tk-detail-value">@_ticket.StartTime.ToString("dddd, MMMM dd yyyy")</span>
+                    </div>
+                </div>
+                <div class="tk-detail-item">
+                    <span class="tk-detail-icon">⏰</span>
+                    <div>
+                        <span class="tk-detail-label">Time</span>
+                        <span class="tk-detail-value">
+                            @_ticket.StartTime.ToString("hh:mm tt") – @_ticket.EndTime.ToString("hh:mm tt")
+                        </span>
+                    </div>
+                </div>
+                <div class="tk-detail-item">
+                    <span class="tk-detail-icon">📌</span>
+                    <div>
+                        <span class="tk-detail-label">@(_ticket.LocationType == "Virtual" ? "Meeting Link" : "Venue")</span>
+                        <span class="tk-detail-value">@_ticket.Location</span>
+                    </div>
+                </div>
+                <div class="tk-detail-item">
+                    <span class="tk-detail-icon">✅</span>
+                    <div>
+                        <span class="tk-detail-label">RSVP Status</span>
+                        <span class="tk-detail-value tk-rsvp-@_ticket.RsvpResponse.ToLower()">@_ticket.RsvpResponse</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Divider with holes -->
+            <div class="tk-perforated"></div>
+
+            <!-- Attendee section -->
+            <div class="tk-attendee">
+                <div class="tk-attendee-info">
+                    <div class="tk-attendee-avatar">@_initials</div>
+                    <div>
+                        <div class="tk-attendee-name">@_userName</div>
+                        <div class="tk-attendee-email">@_userEmail</div>
+                        @if (_ticket.IsOrganizer)
+                        {
+                            <span class="db-pill db-pill-purple" style="margin-top:4px;">Organizer</span>
+                        }
+                    </div>
+                </div>
+                <div class="tk-qr-block">
+                    <!-- Simulated QR code using the ticket ID -->
+                    <div class="tk-qr" title="Ticket ID: @AttendeeId">
+                        <div class="tk-qr-inner">
+                            @* Simple visual QR placeholder — use a real QR library for production *@
+                            <div class="tk-qr-grid">
+                                @foreach (var _ in Enumerable.Range(0, 64))
+                                {
+                                    <div class="tk-qr-cell @(IsFilledCell(_idx++) ? "tk-qr-filled" : "")"></div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tk-ticket-id">
+                        Ticket #@AttendeeId.ToString()[..8].ToUpper()
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="tk-footer">
+                <span>Registered on @(_ticket.RespondedAt?.ToString("MMM dd, yyyy") ?? "—")</span>
+                <span>© 2025 MeetupX. All rights reserved.</span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid AttendeeId { get; set; }
+
+    private bool _ready;
+    private RegistrationDto? _ticket;
+    private string _userName = "", _userEmail = "", _initials = "?";
+    private int _idx;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!await TokenService.IsAuthenticatedAsync())
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        _userName = await TokenService.GetNameAsync() ?? "Attendee";
+        _userEmail = await TokenService.GetEmailAsync() ?? "";
+        _initials = _userName.Length > 0 ? _userName[0].ToString().ToUpper() : "?";
+
+        await LoadTicketAsync();
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadTicketAsync()
+    {
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            // Get all my registrations and find this one
+            var regs = await client.GetFromJsonAsync<List<RegistrationDto>>("api/attendees/my-events");
+            _ticket = regs?.FirstOrDefault(r => r.AttendeeId == AttendeeId);
+        }
+        catch
+        {
+            _ticket = null;
+        }
+    }
+
+    private async Task PrintTicket()
+    {
+        await JS.InvokeVoidAsync("window.print");
+    }
+
+    // Deterministic cell fill based on ticket ID for visual QR appearance
+    private bool IsFilledCell(int index)
+    {
+        var bytes = AttendeeId.ToByteArray();
+        return (bytes[index % bytes.Length] & (1 << (index % 8))) != 0;
+    }
+}

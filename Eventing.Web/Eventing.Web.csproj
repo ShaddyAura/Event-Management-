@@ -9,6 +9,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
         <ProjectReference Include="..\Eventing.ServiceDefaults\Eventing.ServiceDefaults.csproj" />
         <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components" Version="4.12.1" />
         <PackageReference Include="Microsoft.FluentUI.AspNetCore.Components.Emoji" Version="4.12.1" />

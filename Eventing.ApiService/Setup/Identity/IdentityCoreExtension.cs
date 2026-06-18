@@ -17,7 +17,7 @@ public static class IdentityCoreExtension
         {
             options.User.RequireUniqueEmail = true;
 
-            options.SignIn.RequireConfirmedAccount = true;
+            options.SignIn.RequireConfirmedAccount = false;
             options.SignIn.RequireConfirmedEmail = false;
 
             options.Password.RequireDigit = true;

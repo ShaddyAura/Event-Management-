@@ -10,6 +10,7 @@ public record EventResponseDto(
     DateTime EndTime,
     LocationType LocationType,
     string Location,
+    EventStatus Status,
     Guid CreatedBy,
     DateTime CreatedAt,
     DateTime? UpdatedAt

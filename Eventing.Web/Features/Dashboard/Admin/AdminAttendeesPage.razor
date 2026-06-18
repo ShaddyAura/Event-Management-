@@ -1,0 +1,325 @@
+@page "/dashboard/admin/attendees"
+@using Eventing.Web.Components.Layout
+@rendermode InteractiveServer
+@layout AdminDashboardLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+@if (!_ready)
+{
+    <div class="db-loading"><span class="db-spinner"></span></div>
+}
+else
+{
+    <div class="dbd-page">
+        <div class="dbd-header">
+            <div>
+                <h1 class="dbd-title">Attendee <span class="mx-accent">Management</span></h1>
+                <p class="dbd-subtitle">Review registrations, update RSVP status, and mark attendance.</p>
+            </div>
+        </div>
+
+        <!-- Event selector — loaded dynamically from DB -->
+        <div class="db-card" style="margin-bottom:1.5rem;">
+            <div class="ct-form-group" style="margin-bottom:0;">
+                <label>Select Event</label>
+                <select class="auth-input ct-select" @bind="_selectedEventId" @bind:after="LoadAttendeesAsync">
+                    <option value="">— Choose an event —</option>
+                    @foreach (var ev in _events)
+                    {
+                        <option value="@ev.Id">
+                            @ev.Title (@ev.StartTime.ToString("MMM dd, yyyy"))
+                            — @ev.Status
+                        </option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_selectedEventId))
+        {
+            <div class="db-card">
+                <div class="db-card-header">
+                    <h3>Attendees — @(_events.FirstOrDefault(e => e.Id.ToString() == _selectedEventId)?.Title)</h3>
+                    <span class="db-pill db-pill-blue">@_attendees.Count registered</span>
+                </div>
+
+                @if (_loadingAttendees)
+                {
+                    <div style="padding:2rem;text-align:center;color:#606070;">Loading attendees…</div>
+                }
+                else if (_attendees.Count == 0)
+                {
+                    <div class="dbd-empty"><span>👤</span><p>No attendees registered for this event yet.</p></div>
+                }
+                else
+                {
+                    <!-- Summary counts — live from loaded data -->
+                    <div class="dbd-summary-row">
+                        <span class="db-pill db-pill-green">✅ Accepted: @_attendees.Count(a => a.Response == "Accepted")</span>
+                        <span class="db-pill db-pill-gray">⏳ Pending: @_attendees.Count(a => a.Response == "Pending")</span>
+                        <span class="db-pill db-pill-danger">❌ Declined: @_attendees.Count(a => a.Response == "Declined")</span>
+                        <span class="db-pill db-pill-blue">🤔 Maybe: @_attendees.Count(a => a.Response == "Maybe")</span>
+                        <span class="db-pill db-pill-green" style="margin-left:auto;">
+                            ✓ Verified: @_attendees.Count(a => a.Attended)
+                        </span>
+                    </div>
+
+                    <table class="db-table">
+                        <thead>
+                            <tr>
+                                <th>Full Name</th>
+                                <th>Current RSVP</th>
+                                <th>Change RSVP</th>
+                                <th>Role</th>
+                                <th>Responded</th>
+                                <th>Attendance</th>
+                                <th>Verify Present</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var a in _attendees)
+                            {
+                                var isLocked = a.Response == "Accepted" && a.Attended;
+
+                                <tr class="@(isLocked ? "dbd-row-locked" : "")">
+                                    <!-- Full Name -->
+                                    <td>
+                                        <div class="dbd-attendee-cell">
+                                            <div class="db-user-avatar"
+                                                 style="background:@GetAvatarColor(a.Responder.Name);width:32px;height:32px;font-size:0.8rem;flex-shrink:0;">
+                                                @a.Responder.Name[0].ToString().ToUpper()
+                                            </div>
+                                            <span style="color:#e0e0e0;font-weight:500;">@a.Responder.Name</span>
+                                        </div>
+                                    </td>
+
+                                    <!-- Current RSVP pill — from DB -->
+                                    <td>
+                                        <span class="db-pill @GetRsvpPill(a.Response)">@a.Response</span>
+                                        @if (isLocked)
+                                        {
+                                            <span style="font-size:0.7rem;color:#e91e63;margin-left:4px;">🔒</span>
+                                        }
+                                    </td>
+
+                                    <!-- Change RSVP dropdown — disabled when locked -->
+                                    <td>
+                                        @if (isLocked)
+                                        {
+                                            <span class="db-pill db-pill-green" style="font-size:0.75rem;">Locked — Verified</span>
+                                        }
+                                        else
+                                        {
+                                            <select class="dbd-rsvp-select"
+                                                    @bind="_rsvpDraft[a.AttendeeId]"
+                                                    @bind:after="() => ChangeRsvpAsync(a)">
+                                                <option value="Pending">⏳ Pending</option>
+                                                <option value="Accepted">✅ Accepted</option>
+                                                <option value="Declined">❌ Declined</option>
+                                                <option value="Maybe">🤔 Maybe</option>
+                                            </select>
+                                        }
+                                    </td>
+
+                                    <!-- Role -->
+                                    <td>
+                                        @if (a.IsOrganizer)
+                                        { <span class="db-pill db-pill-purple">Organizer</span> }
+                                        else
+                                        { <span class="db-pill db-pill-gray">Member</span> }
+                                    </td>
+
+                                    <!-- Responded at -->
+                                    <td style="color:#9090a0;font-size:0.82rem;">
+                                        @(a.RespondedAt?.ToString("MMM dd, hh:mm tt") ?? "—")
+                                    </td>
+
+                                    <!-- Attendance status from DB -->
+                                    <td>
+                                        @if (a.Attended)
+                                        { <span class="db-pill db-pill-green">✓ Present</span> }
+                                        else
+                                        { <span class="db-pill db-pill-gray">Absent</span> }
+                                    </td>
+
+                                    <!-- Verify button — disabled once marked present -->
+                                    <td>
+                                        @if (a.Attended)
+                                        {
+                                            <span class="db-pill db-pill-green">✓ Verified</span>
+                                        }
+                                        else
+                                        {
+                                            <button class="dbd-verify-btn"
+                                                    disabled="@(_verifying == a.AttendeeId)"
+                                                    @onclick="() => MarkPresentAsync(a)">
+                                                @(_verifying == a.AttendeeId ? "Saving…" : "Mark Present")
+                                            </button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private bool _ready, _loadingAttendees;
+    private string _selectedEventId = "";
+    private List<EventItem> _events = [];
+    private List<AttendeeItem> _attendees = [];
+
+    // Draft RSVP values for each attendee — initialized from DB values
+    private Dictionary<Guid, string> _rsvpDraft = [];
+    private Guid? _verifying;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        if (!await TokenService.IsAdminAsync()) { Nav.NavigateTo("/login", replace: true); return; }
+
+        // Support ?eventId= query param from overview page
+        var uri = new Uri(Nav.Uri);
+        var qs = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        _selectedEventId = qs["eventId"] ?? "";
+
+        await LoadEventsAsync();
+        if (!string.IsNullOrEmpty(_selectedEventId))
+            await LoadAttendeesAsync();
+
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        try
+        {
+            var client = await AuthedClient();
+            // Events with status come from DB dynamically
+            _events = await client.GetFromJsonAsync<List<EventItem>>("api/events") ?? [];
+        }
+        catch { _events = []; }
+    }
+
+    private async Task LoadAttendeesAsync()
+    {
+        if (string.IsNullOrEmpty(_selectedEventId)) { _attendees = []; _rsvpDraft = []; return; }
+        _loadingAttendees = true;
+        StateHasChanged();
+        try
+        {
+            var client = await AuthedClient();
+            _attendees = await client.GetFromJsonAsync<List<AttendeeItem>>(
+                $"api/events/{_selectedEventId}/attendees") ?? [];
+
+            // Initialize draft RSVP values from current DB state
+            _rsvpDraft = _attendees.ToDictionary(a => a.AttendeeId, a => a.Response);
+        }
+        catch { _attendees = []; _rsvpDraft = []; }
+        _loadingAttendees = false;
+        StateHasChanged();
+    }
+
+    private async Task MarkPresentAsync(AttendeeItem attendee)
+    {
+        _verifying = attendee.AttendeeId;
+        StateHasChanged();
+        try
+        {
+            var client = await AuthedClient();
+            var resp = await client.PatchAsync(
+                $"api/events/{_selectedEventId}/attendees/{attendee.AttendeeId}/attendance", null);
+
+            if (resp.IsSuccessStatusCode)
+            {
+                // Update local record — mark present + accepted + locked
+                var idx = _attendees.IndexOf(attendee);
+                if (idx >= 0)
+                {
+                    _attendees[idx] = attendee with { Attended = true, Response = "Accepted" };
+                    _rsvpDraft[attendee.AttendeeId] = "Accepted";
+                }
+            }
+        }
+        catch { }
+        finally { _verifying = null; StateHasChanged(); }
+    }
+
+    private async Task ChangeRsvpAsync(AttendeeItem attendee)
+    {
+        if (!_rsvpDraft.TryGetValue(attendee.AttendeeId, out var newRsvp)) return;
+        if (newRsvp == attendee.Response) return; // No change
+
+        try
+        {
+            var client = await AuthedClient();
+            var payload = new { RsvpResponse = newRsvp };
+            var resp = await client.PatchAsJsonAsync(
+                $"api/events/{_selectedEventId}/attendees/{attendee.AttendeeId}/admin-rsvp", payload);
+
+            if (resp.IsSuccessStatusCode)
+            {
+                var idx = _attendees.IndexOf(attendee);
+                if (idx >= 0)
+                    _attendees[idx] = attendee with { Response = newRsvp };
+            }
+            else if (resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                // Already locked — revert draft to current value
+                _rsvpDraft[attendee.AttendeeId] = attendee.Response;
+            }
+        }
+        catch { }
+        StateHasChanged();
+    }
+
+    private async Task<System.Net.Http.HttpClient> AuthedClient()
+    {
+        var token = await TokenService.GetTokenAsync();
+        var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    private static string GetRsvpPill(string r) => r switch
+    {
+        "Accepted" => "db-pill-green",
+        "Declined" => "db-pill-danger",
+        "Maybe"    => "db-pill-blue",
+        _          => "db-pill-gray"
+    };
+
+    private static string GetAvatarColor(string name)
+    {
+        var colors = new[] { "#e91e63", "#7c3aed", "#2563eb", "#059669", "#d97706" };
+        return colors[Math.Abs(name.GetHashCode()) % colors.Length];
+    }
+
+    // Events include Status from DB
+    private sealed record EventItem(
+        Guid Id, string Title, string? Description,
+        DateTime StartTime, DateTime EndTime,
+        string LocationType, string Location,
+        Guid CreatedBy, DateTime CreatedAt, DateTime? UpdatedAt,
+        string? Status = null);
+
+    private sealed record AttendeeItem(
+        Guid AttendeeId,
+        string Response,
+        bool IsOrganizer,
+        string? Comment,
+        DateTime? RespondedAt,
+        DateTime? UpdatedAt,
+        bool Attended,
+        AttendeeResponder Responder);
+
+    private sealed record AttendeeResponder(Guid UserId, string Name);
+}

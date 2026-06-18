@@ -1,0 +1,329 @@
+@page "/dashboard"
+@using Eventing.Web.Components.Layout
+@using Eventing.Web.Features.Events.Models
+@rendermode InteractiveServer
+@layout UserDashboardLayout
+@inject TokenService TokenService
+@inject NavigationManager Nav
+@inject IHttpClientFactory ClientFactory
+
+@if (!_ready)
+{
+    <div class="db-loading"><span class="db-spinner"></span></div>
+}
+else
+{
+    <div class="dbd-page">
+        <!-- Header -->
+        <div class="dbd-header">
+            <div>
+                <h1 class="dbd-title">Welcome, <span class="mx-accent">@_userName</span> 👋</h1>
+                <p class="dbd-subtitle">Here's everything happening with your events.</p>
+            </div>
+            <a href="/dashboard/browse-events" class="mx-btn-primary">🔍 Browse &amp; Register</a>
+        </div>
+
+        <!-- Stats -->
+        <div class="db-stats-row">
+            <div class="db-stat-card db-stat-pink">
+                <div class="db-stat-icon">🎟</div>
+                <div>
+                    <div class="db-stat-value">@_myRegistrations.Count</div>
+                    <div class="db-stat-label">My Registrations</div>
+                </div>
+            </div>
+            <div class="db-stat-card db-stat-purple">
+                <div class="db-stat-icon">📅</div>
+                <div>
+                    <div class="db-stat-value">@_myRegistrations.Count(r => r.EventStatus == "Upcoming")</div>
+                    <div class="db-stat-label">Upcoming</div>
+                </div>
+            </div>
+            <div class="db-stat-card db-stat-blue">
+                <div class="db-stat-icon">📋</div>
+                <div>
+                    <div class="db-stat-value">@_allEvents.Count</div>
+                    <div class="db-stat-label">Available Events</div>
+                </div>
+            </div>
+            <div class="db-stat-card db-stat-green">
+                <div class="db-stat-icon">🌐</div>
+                <div>
+                    <div class="db-stat-value">@_allEvents.Count(e => e.LocationType == "Virtual")</div>
+                    <div class="db-stat-label">Virtual Events</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- My Registered Events with tickets -->
+        <div class="db-card dbd-events-card">
+            <div class="db-card-header">
+                <h3>🎟 My Registered Events</h3>
+                <a href="/dashboard/browse-events" class="db-link">Register for More →</a>
+            </div>
+
+            @if (_loading)
+            {
+                <div style="padding:2rem;text-align:center;color:#606070;">Loading…</div>
+            }
+            else if (_myRegistrations.Count == 0)
+            {
+                <div class="dbd-empty">
+                    <span>📭</span>
+                    <p>You haven't registered for any events yet.</p>
+                    <a href="/dashboard/browse-events" class="mx-btn-primary" style="display:inline-block;margin-top:1rem;">Browse Events</a>
+                </div>
+            }
+            else
+            {
+                <table class="db-table">
+                    <thead>
+                        <tr>
+                            <th>Event</th>
+                            <th>Type</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                            <th>RSVP</th>
+                            <th>Ticket</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var reg in _myRegistrations)
+                        {
+                            <tr>
+                                <td class="dbd-event-title">@reg.EventTitle</td>
+                                <td>
+                                    <span class="db-pill @(reg.LocationType == "Virtual" ? "db-pill-blue" : "db-pill-green")">
+                                        @(reg.LocationType == "Virtual" ? "🌐" : "📍") @reg.LocationType
+                                    </span>
+                                </td>
+                                <td>@reg.StartTime.ToString("MMM dd, yyyy")</td>
+                                <td>
+                                    @{
+                                        var evStatus = reg.EventStatus;
+                                    }
+                                    @if (evStatus == "Cancelled")
+                                    { <span class="db-pill db-pill-danger">Cancelled</span> }
+                                    else if (evStatus == "Ended")
+                                    { <span class="db-pill db-pill-gray">Ended</span> }
+                                    else if (evStatus == "Live")
+                                    { <span class="db-pill db-pill-green">Live</span> }
+                                    else
+                                    { <span class="db-pill db-pill-purple">Upcoming</span> }
+                                </td>
+                                <td>
+                                    <span class="db-pill @GetRsvpPill(reg.RsvpResponse)">@reg.RsvpResponse</span>
+                                </td>
+                                <td>
+                                    <a href="/ticket/@reg.AttendeeId" class="dbd-ticket-link">
+                                        🎟 View Ticket
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <!-- Upcoming events to register for -->
+        <div class="db-card dbd-events-card">
+            <div class="db-card-header">
+                <h3>📅 Discover Upcoming Events</h3>
+                <a href="/dashboard/browse-events" class="db-link">View All →</a>
+            </div>
+            @if (_upcoming.Count == 0)
+            {
+                <div class="dbd-empty"><span>📭</span><p>No upcoming events.</p></div>
+            }
+            else
+            {
+                <div class="dbd-ev-cards">
+                    @foreach (var ev in _upcoming.Take(6))
+                    {
+                        var alreadyReg = _registeredIds.Contains(ev.Id);
+                        <div class="dbd-ev-card">
+                            <div class="dbd-ev-card-top"
+                                 style="background:@(ev.LocationType == "Virtual" ? "linear-gradient(135deg,#1a0a2e,#0d1a2e)" : "linear-gradient(135deg,#1a0a1a,#2e0a1a)")">
+                                <span class="ev-type-badge">@(ev.LocationType == "Virtual" ? "🌐 Virtual" : "📍 In-Person")</span>
+                                <span class="ev-card-date">@ev.StartTime.ToString("MMM dd")</span>
+                            </div>
+                            <div class="dbd-ev-card-body">
+                                <h4>@ev.Title</h4>
+                                <p>@(ev.Description?.Length > 70 ? ev.Description[..70] + "…" : ev.Description ?? "")</p>
+                                <div class="dbd-ev-meta">
+                                    <span>⏰ @ev.StartTime.ToString("hh:mm tt")</span>
+                                    <span>📌 @(ev.Location.Length > 28 ? ev.Location[..28] + "…" : ev.Location)</span>
+                                </div>
+                            </div>
+                            <div class="dbd-ev-card-footer">
+                                @if (alreadyReg)
+                                {
+                                    var regId = _myRegistrations.FirstOrDefault(r => r.EventId == ev.Id)?.AttendeeId;
+                                    <a href="/ticket/@regId" class="mx-btn-outline dbd-ev-btn">🎟 View Ticket</a>
+                                }
+                                else
+                                {
+                                    <button class="mx-btn-primary dbd-ev-btn"
+                                            disabled="@(_registering == ev.Id)"
+                                            @onclick="() => RegisterAsync(ev)">
+                                        @(_registering == ev.Id ? "Registering…" : "Register")
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Profile + Quick Links -->
+        <div class="db-grid" style="margin-top:1.5rem;">
+            <div class="db-card db-profile-card">
+                <div class="db-profile-avatar">@_initials</div>
+                <div class="db-profile-name">@_userName</div>
+                <div class="db-profile-email">@_userEmail</div>
+                <div class="db-profile-role">
+                    <span class="db-pill db-pill-purple">General Member</span>
+                </div>
+                <div class="db-profile-stats">
+                    <div><strong>@_myRegistrations.Count</strong><span>Registered</span></div>
+                    <div><strong>@_myRegistrations.Count(r => r.EventStatus == "Upcoming")</strong><span>Upcoming</span></div>
+                    <div><strong>@_myRegistrations.Count(r => r.Attended)</strong><span>Attended</span></div>
+                </div>
+            </div>
+
+            <div class="db-card">
+                <div class="db-card-header"><h3>Quick Links</h3></div>
+                <div class="db-actions-list">
+                    <a href="/dashboard/browse-events" class="db-action-item">
+                        <span class="db-action-icon" style="background:#e91e63;">📅</span>
+                        <span>Browse &amp; Register for Events</span>
+                    </a>
+                    <a href="/about" class="db-action-item">
+                        <span class="db-action-icon" style="background:#7c3aed;">ℹ️</span>
+                        <span>About MeetupX</span>
+                    </a>
+                    <a href="/contact" class="db-action-item">
+                        <span class="db-action-icon" style="background:#2563eb;">✉️</span>
+                        <span>Contact Us</span>
+                    </a>
+                    <a href="/home" class="db-action-item">
+                        <span class="db-action-icon" style="background:#059669;">🌐</span>
+                        <span>Go to Home</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (_successMsg is not null)
+    {
+        <div class="ev-toast">
+            🎉 @_successMsg
+            <button @onclick='() => _successMsg = null'>✕</button>
+        </div>
+    }
+}
+
+@code {
+    private bool _ready, _loading;
+    private string _userName = "", _userEmail = "", _initials = "?";
+    private List<RegistrationDto> _myRegistrations = [];
+    private List<EventItem> _allEvents = [];
+    private List<EventItem> _upcoming = [];
+    private HashSet<Guid> _registeredIds = [];
+    private Guid? _registering;
+    private string? _successMsg;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        if (!await TokenService.IsAuthenticatedAsync()) { Nav.NavigateTo("/login", replace: true); return; }
+
+        _userName = await TokenService.GetNameAsync() ?? "User";
+        _userEmail = await TokenService.GetEmailAsync() ?? "";
+        _initials = _userName.Length > 0 ? _userName[0].ToString().ToUpper() : "U";
+
+        await Task.WhenAll(LoadEventsAsync(), LoadMyRegistrationsAsync());
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _loading = true;
+        try
+        {
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            var token = await TokenService.GetTokenAsync();
+            if (!string.IsNullOrEmpty(token))
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            _allEvents = await client.GetFromJsonAsync<List<EventItem>>("api/events") ?? [];
+            _upcoming = _allEvents.Where(e => e.StartTime > DateTime.UtcNow)
+                                  .OrderBy(e => e.StartTime).ToList();
+        }
+        catch { _allEvents = []; _upcoming = []; }
+        _loading = false;
+    }
+
+    private async Task LoadMyRegistrationsAsync()
+    {
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            _myRegistrations = await client.GetFromJsonAsync<List<RegistrationDto>>("api/attendees/my-events") ?? [];
+            _registeredIds = _myRegistrations.Select(r => r.EventId).ToHashSet();
+        }
+        catch { _myRegistrations = []; }
+    }
+
+    private async Task RegisterAsync(EventItem ev)
+    {
+        _registering = ev.Id;
+        StateHasChanged();
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await client.PostAsync($"api/attendees/events/{ev.Id}/register", null);
+            if (resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var reg = await resp.Content.ReadFromJsonAsync<RegistrationDto>();
+                if (reg is not null)
+                {
+                    _myRegistrations.RemoveAll(r => r.EventId == ev.Id);
+                    _myRegistrations.Add(reg);
+                    _registeredIds.Add(ev.Id);
+                    _successMsg = $"🎉 Registered for \"{ev.Title}\"! Go to My Registrations to download your ticket.";
+                }
+            }
+        }
+        catch { }
+        finally { _registering = null; StateHasChanged(); }
+    }
+
+    private static string GetRsvpPill(string r) => r switch
+    {
+        "Accepted" => "db-pill-green",
+        "Declined" => "",
+        "Maybe"    => "db-pill-blue",
+        _          => "db-pill-gray"
+    };
+
+    private sealed record EventItem(
+        Guid Id, string Title, string? Description,
+        DateTime StartTime, DateTime EndTime,
+        string LocationType, string Location,
+        string Status, Guid CreatedBy,
+        DateTime CreatedAt, DateTime? UpdatedAt);
+}

@@ -1,0 +1,201 @@
+@page "/dashboard/browse-events"
+@using Eventing.Web.Components.Layout
+@using Eventing.Web.Features.Events.Models
+@rendermode InteractiveServer
+@layout UserDashboardLayout
+@inject IHttpClientFactory ClientFactory
+@inject TokenService TokenService
+
+<div class="dbd-page">
+
+    <!-- Header -->
+    <div class="dbd-header">
+        <div>
+            <h1 class="dbd-title">Browse <span class="mx-accent">Events</span></h1>
+            <p class="dbd-subtitle">Discover and register for upcoming events.</p>
+        </div>
+    </div>
+
+    <!-- Search + Filters -->
+    <div class="db-card" style="padding:1.2rem 1.5rem;margin-bottom:1.5rem;">
+        <div class="dbe-filter-row">
+            <div class="ev-search-wrap" style="flex:1;min-width:200px;max-width:400px;">
+                <span class="ev-search-icon">🔍</span>
+                <input class="ev-search-input" type="text" placeholder="Search events..."
+                       @bind="_search" @bind:event="oninput" @bind:after="ApplyFilters" />
+            </div>
+            <div class="ev-filter-pills">
+                <button class="ev-filter-btn @(_filter == "All"      ? "ev-filter-active" : "")"
+                        @onclick='() => SetFilter("All")'>All</button>
+                <button class="ev-filter-btn @(_filter == "Physical" ? "ev-filter-active" : "")"
+                        @onclick='() => SetFilter("Physical")'>📍 In-Person</button>
+                <button class="ev-filter-btn @(_filter == "Virtual"  ? "ev-filter-active" : "")"
+                        @onclick='() => SetFilter("Virtual")'>🌐 Virtual</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Events grid -->
+    @if (_loading)
+    {
+        <div class="db-loading"><span class="db-spinner"></span></div>
+    }
+    else if (_filtered.Count == 0)
+    {
+        <div class="dbd-empty">
+            <span>📭</span>
+            <p>No events found. Try a different search or filter.</p>
+        </div>
+    }
+    else
+    {
+        <div class="dbe-grid">
+            @foreach (var ev in _filtered)
+            {
+                var isRegistered = _registeredIds.Contains(ev.Id);
+                var regId = _registrations.FirstOrDefault(r => r.EventId == ev.Id)?.AttendeeId;
+
+                <div class="dbe-card">
+                    <div class="dbe-card-top"
+                         style="background:@(ev.LocationType == "Virtual" ? "linear-gradient(135deg,#1a0a2e,#0d1a2e)" : "linear-gradient(135deg,#1a0a1a,#2e0a1a)")">
+                        <span class="ev-type-badge">
+                            @(ev.LocationType == "Virtual" ? "🌐 Virtual" : "📍 In-Person")
+                        </span>
+                        <span class="ev-card-date">@ev.StartTime.ToString("MMM dd")</span>
+                    </div>
+
+                    <div class="dbe-card-body">
+                        <h3 class="dbe-card-title">@ev.Title</h3>
+                        <p class="dbe-card-desc">
+                            @(ev.Description?.Length > 100 ? ev.Description[..100] + "…" : ev.Description ?? "No description.")
+                        </p>
+                        <div class="dbe-card-meta">
+                            <span>📅 @ev.StartTime.ToString("ddd, MMM dd yyyy")</span>
+                            <span>⏰ @ev.StartTime.ToString("hh:mm tt") – @ev.EndTime.ToString("hh:mm tt")</span>
+                            <span>📌 @(ev.Location.Length > 40 ? ev.Location[..40] + "…" : ev.Location)</span>
+                        </div>
+                    </div>
+
+                    <div class="dbe-card-footer">
+                        @if (isRegistered && regId.HasValue)
+                        {
+                            <div class="ev-registered-row">
+                                <span class="db-pill db-pill-green">✅ Registered</span>
+                                <a href="/ticket/@regId" class="mx-btn-outline ev-ticket-btn">🎟 Ticket</a>
+                            </div>
+                        }
+                        else
+                        {
+                            <button class="mx-btn-primary dbe-btn"
+                                    disabled="@(_registering == ev.Id)"
+                                    @onclick="() => RegisterAsync(ev)">
+                                @(_registering == ev.Id ? "Registering…" : "Register Now")
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Toast -->
+    @if (_successMsg is not null)
+    {
+        <div class="ev-toast">
+            🎉 @_successMsg
+            <button @onclick='() => _successMsg = null'>✕</button>
+        </div>
+    }
+</div>
+
+@code {
+    private List<EventDto> _events = [];
+    private List<EventDto> _filtered = [];
+    private List<RegistrationDto> _registrations = [];
+    private HashSet<Guid> _registeredIds = [];
+    private string _search = "";
+    private string _filter = "All";
+    private bool _loading = true;
+    private Guid? _registering;
+    private string? _successMsg;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadEventsAsync(), LoadMyRegistrationsAsync());
+    }
+
+    private async Task LoadEventsAsync()
+    {
+        _loading = true;
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            if (!string.IsNullOrEmpty(token))
+                client.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _events = await client.GetFromJsonAsync<List<EventDto>>("api/events") ?? [];
+        }
+        catch { _events = []; }
+        finally { _loading = false; ApplyFilters(); }
+    }
+
+    private async Task LoadMyRegistrationsAsync()
+    {
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token)) return;
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            _registrations = await client.GetFromJsonAsync<List<RegistrationDto>>("api/attendees/my-events") ?? [];
+            _registeredIds = _registrations.Select(r => r.EventId).ToHashSet();
+        }
+        catch { _registrations = []; }
+    }
+
+    private async Task RegisterAsync(EventDto ev)
+    {
+        _registering = ev.Id;
+        StateHasChanged();
+        try
+        {
+            var token = await TokenService.GetTokenAsync();
+            var client = ClientFactory.CreateClient(HttpClientNames.EventingApi);
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var resp = await client.PostAsync($"api/attendees/events/{ev.Id}/register", null);
+            if (resp.IsSuccessStatusCode || resp.StatusCode == System.Net.HttpStatusCode.Conflict)
+            {
+                var reg = await resp.Content.ReadFromJsonAsync<RegistrationDto>();
+                if (reg is not null)
+                {
+                    _registrations.RemoveAll(r => r.EventId == ev.Id);
+                    _registrations.Add(reg);
+                    _registeredIds.Add(ev.Id);
+                    _successMsg = $"Registered for \"{ev.Title}\"! 🎟 View your ticket on the dashboard.";
+                    ApplyFilters();
+                }
+            }
+        }
+        catch { }
+        finally { _registering = null; StateHasChanged(); }
+    }
+
+    private void SetFilter(string f) { _filter = f; ApplyFilters(); }
+
+    private void ApplyFilters()
+    {
+        _filtered = _events
+            .Where(e =>
+                (string.IsNullOrWhiteSpace(_search) ||
+                 e.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                 (e.Description?.Contains(_search, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                 e.Location.Contains(_search, StringComparison.OrdinalIgnoreCase))
+                && (_filter == "All" || e.LocationType == _filter))
+            .OrderByDescending(e => e.StartTime)
+            .ToList();
+    }
+}

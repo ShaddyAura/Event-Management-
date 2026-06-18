@@ -11,47 +11,67 @@ namespace Eventing.ApiService.Controllers.Event;
 public class EventsController(EventingDbContext dbContext, CurrentUserService currentUserService) : ApiBaseController
 {
     [HttpGet]
+    [AllowAnonymous]
     [ProducesDefaultResponseType]
     [ProducesResponseType<IEnumerable<EventResponseDto>>(StatusCodes.Status200OK)]
     public async Task<ActionResult<IEnumerable<EventResponseDto>>> GetAllAsync([FromQuery] string? search,
         CancellationToken ct)
     {
+        var now = DateTime.UtcNow;
+
         var events = await dbContext.Events
             .Where(x => search == null || x.Title.ToLower() == search.ToLower())
             .OrderByDescending(x => x.CreatedAt)
-            .Select(x => new EventResponseDto(x.Id, x.Title, x.Description, x.StartTime, x.EndTime,
-                x.LocationType, x.Location, x.CreatedBy, x.CreatedAt, x.UpdatedAt))
             .ToListAsync(ct);
 
-        return Ok(events);
+        // Auto-compute effective status based on current time
+        var result = events.Select(x =>
+        {
+            var effectiveStatus = x.Status;
+
+            // Only auto-update non-cancelled events
+            if (x.Status != Data.Enums.EventStatus.Cancelled)
+            {
+                if (x.EndTime < now)
+                    effectiveStatus = Data.Enums.EventStatus.Ended;
+                else if (x.StartTime <= now && x.EndTime >= now)
+                    effectiveStatus = Data.Enums.EventStatus.Live;
+                else if (x.StartTime > now)
+                    effectiveStatus = Data.Enums.EventStatus.Upcoming;
+            }
+
+            return new EventResponseDto(x.Id, x.Title, x.Description, x.StartTime, x.EndTime,
+                x.LocationType, x.Location, effectiveStatus, x.CreatedBy, x.CreatedAt, x.UpdatedAt);
+        }).ToList();
+
+        return Ok(result);
     }
 
     [HttpGet("{eventId:guid}")]
+    [AllowAnonymous]
     [ProducesDefaultResponseType]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<EventResponseDto>> GetByIdAsync([FromRoute] Guid eventId, CancellationToken ct)
     {
-        if (!await EventExistsAsync(eventId, ct)) return NotFound();
+        var x = await dbContext.Events.FirstOrDefaultAsync(e => e.Id == eventId, ct);
+        if (x is null) return NotFound();
 
-        var @event = await dbContext.Events
-            .Where(x => x.Id == eventId)
-            .Select(x => new EventResponseDto(
-                x.Id,
-                x.Title,
-                x.Description,
-                x.StartTime,
-                x.EndTime,
-                x.LocationType,
-                x.Location,
-                x.CreatedBy,
-                x.CreatedAt,
-                x.UpdatedAt))
-            .FirstOrDefaultAsync(ct);
+        var now = DateTime.UtcNow;
+        var effectiveStatus = x.Status;
 
-        if (@event is null) return NotFound();
+        if (x.Status != Data.Enums.EventStatus.Cancelled)
+        {
+            if (x.EndTime < now)
+                effectiveStatus = Data.Enums.EventStatus.Ended;
+            else if (x.StartTime <= now && x.EndTime >= now)
+                effectiveStatus = Data.Enums.EventStatus.Live;
+            else if (x.StartTime > now)
+                effectiveStatus = Data.Enums.EventStatus.Upcoming;
+        }
 
-        return Ok(@event);
+        return Ok(new EventResponseDto(x.Id, x.Title, x.Description, x.StartTime, x.EndTime,
+            x.LocationType, x.Location, effectiveStatus, x.CreatedBy, x.CreatedAt, x.UpdatedAt));
     }
 
     [HttpPost]
@@ -70,6 +90,7 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
             LocationType = dto.LocationType,
             Location = dto.Location,
             ShowAttendees = dto.ShowAttendees,
+            Status = dto.Status,
             CreatedBy = currentUserService.UserId
         };
 
@@ -78,8 +99,8 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
         await dbContext.SaveChangesAsync(ct);
 
         var response = new EventResponseDto(@event.Id, @event.Title, @event.Description, @event.StartTime,
-            @event.EndTime, @event.LocationType, @event.Location, @event.CreatedBy, @event.CreatedAt, @event.UpdatedAt);
-        return CreatedAtAction(nameof(GetByIdAsync), new { id = @event.Id }, response);
+            @event.EndTime, @event.LocationType, @event.Location, @event.Status, @event.CreatedBy, @event.CreatedAt, @event.UpdatedAt);
+        return CreatedAtAction(nameof(GetByIdAsync), new { eventId = @event.Id }, response);
     }
 
     [HttpPut("{eventId:guid}")]
@@ -102,6 +123,7 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
         @event.LocationType = dto.LocationType;
         @event.Location = dto.Location;
         @event.ShowAttendees = dto.ShowAttendees;
+        @event.Status = dto.Status;
         @event.UpdatedAt = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync(ct);
@@ -136,17 +158,21 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
         CancellationToken ct)
     {
         if (!await EventExistsAsync(eventId, ct)) return NotFound();
-        if (!await IsCurrentUserAnAttendeeAsync(eventId, ct)) return Forbid();
+
+        // Allow event creator (admin) OR any registered attendee
+        var isCreator = await dbContext.Events.AnyAsync(e => e.Id == eventId && e.CreatedBy == currentUserService.UserId, ct);
+        var isAttendee = await IsCurrentUserAnAttendeeAsync(eventId, ct);
+        if (!isCreator && !isAttendee) return Forbid();
 
         var attendees = await dbContext.Attendees
             .Include(x => x.Responder)
             .Where(a => a.EventId == eventId &&
-                        (
-                            a.Event.ShowAttendees
-                            || a.Event.CreatedBy == currentUserService.UserId
-                            || a.IsOrganizer
-                            || a.ResponderId == currentUserService.UserId
-                        ))
+        (
+            a.Event.ShowAttendees ||
+            a.Event.CreatedBy == currentUserService.UserId ||
+            a.IsOrganizer ||
+            a.ResponderId == currentUserService.UserId
+        ))
             .OrderByDescending(x => x.IsOrganizer)
             .ThenBy(x => x.Responder.Name)
             .Select(x => new AttendeeResponseDto(
@@ -156,6 +182,7 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
                 x.Comment,
                 x.RespondedAt,
                 x.UpdatedAt,
+                x.Attended,
                 new AttendeeInfo(
                     x.Responder.Id,
                     x.Responder.Name)
@@ -163,6 +190,36 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
             .ToListAsync(ct);
 
         return Ok(attendees);
+    }
+
+    /// <summary>Admin updates an attendee's RSVP status — locked once Accepted + Attended</summary>
+    [HttpPatch("{eventId:guid}/attendees/{attendeeId:guid}/admin-rsvp")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AdminUpdateRsvpAsync(
+        [FromRoute] Guid eventId,
+        [FromRoute] Guid attendeeId,
+        [FromBody] PatchRsvpRequestDto dto,
+        CancellationToken ct)
+    {
+        var ev = await dbContext.Events.FirstOrDefaultAsync(e => e.Id == eventId, ct);
+        if (ev is null) return NotFound();
+        if (ev.CreatedBy != currentUserService.UserId) return Forbid();
+
+        var attendee = await dbContext.Attendees
+            .FirstOrDefaultAsync(a => a.Id == attendeeId && a.EventId == eventId, ct);
+        if (attendee is null) return NotFound();
+
+        // 🔒 LOCKED: once Accepted AND verified as present, RSVP cannot be changed
+        if (attendee.RsvpResponse == Data.Enums.RsvpResponse.Accepted && attendee.Attended)
+            return Conflict(new { message = "Attendee is verified as present. RSVP is locked." });
+
+        attendee.RsvpResponse = dto.RsvpResponse;
+        attendee.UpdatedAt = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(ct);
+        return NoContent();
     }
 
     [HttpPatch("{eventId:guid}/attendees/{attendeeId:guid}/rsvp")]
@@ -186,6 +243,29 @@ public class EventsController(EventingDbContext dbContext, CurrentUserService cu
 
         await dbContext.SaveChangesAsync(ct);
 
+        return NoContent();
+    }
+    // Mark attendee as present (admin only) — also auto-accepts RSVP
+    [HttpPatch("{eventId:guid}/attendees/{attendeeId:guid}/attendance")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> MarkAttendanceAsync(Guid eventId, Guid attendeeId, CancellationToken ct)
+    {
+        var ev = await dbContext.Events.FirstOrDefaultAsync(e => e.Id == eventId, ct);
+        if (ev == null) return NotFound();
+        if (ev.CreatedBy != currentUserService.UserId) return Forbid();
+
+        var attendee = await dbContext.Attendees
+            .Where(a => a.Id == attendeeId && a.EventId == eventId)
+            .FirstOrDefaultAsync(ct);
+        if (attendee == null) return NotFound();
+
+        // Mark present and auto-accept RSVP — this locks the RSVP from further changes
+        attendee.Attended = true;
+        attendee.RsvpResponse = Data.Enums.RsvpResponse.Accepted;
+        attendee.UpdatedAt = DateTime.UtcNow;
+        await dbContext.SaveChangesAsync(ct);
         return NoContent();
     }
 

@@ -25,6 +25,8 @@ public sealed class Event
 
     [MaxLength(MaxLocationCharacters)] public string Location { get; set; } = null!;
 
+    public EventStatus Status { get; set; } = EventStatus.Upcoming;
+
     public bool ShowAttendees { get; set; }
 
     public Guid CreatedBy { get; set; }

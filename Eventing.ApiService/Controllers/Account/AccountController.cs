@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using SignInResult = Microsoft.AspNetCore.Identity.SignInResult;
 
 namespace Eventing.ApiService.Controllers.Account;
@@ -34,7 +35,15 @@ public class AccountController(
         if (!result.Succeeded) return Problem(title: result.ToString(), statusCode: StatusCodes.Status401Unauthorized);
 
         var claimPrincipal = await signInManager.CreateUserPrincipalAsync(user);
-        var (accessToken, expiresIn) = jwtTokenService.CreateToken(claimPrincipal.Claims);
+        var claims = claimPrincipal.Claims.ToList();
+
+        // Add the user's display name (Profile.Name) as a custom claim
+        var profile = await dbContext.Set<Profile>()
+            .FirstOrDefaultAsync(p => p.Id == user.Id);
+        if (profile is not null)
+            claims.Add(new System.Security.Claims.Claim("full_name", profile.Name));
+
+        var (accessToken, expiresIn) = jwtTokenService.CreateToken(claims);
         return Ok(new LoginResponseDto(accessToken, expiresIn));
     }
 
@@ -49,8 +58,11 @@ public class AccountController(
         var result = await userManager.CreateAsync(user, dto.Password);
         if (!result.Succeeded) return ValidationProblem(CreateValidationProblemDetails(result.Errors));
 
-        await userManager.AddToRoleAsync(user, "General");
+        // Assign role based on IsAdmin flag
+        var role = dto.IsAdmin ? "Admin" : "General";
+        await userManager.AddToRoleAsync(user, role);
 
+        // Create profile entry from DTO
         dbContext.Set<Profile>().Add(dto);
         await dbContext.SaveChangesAsync();
 
